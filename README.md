@@ -1,6 +1,11 @@
 <!-- vim: ft=markdown
 -->
 
+
+For now a lot of this isn't actually the case, because its midnight and I need to get some sleep, I'll clean up tomorrow.
+So tonight nothing quite compiles or even works :S
+
+
 Yet another XML Parser
 =====================
 
