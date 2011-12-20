@@ -1,6 +1,11 @@
--module(parsetransform_parser).
+-module(parser_pt).
 
 -export([parse_transform/2]).
+
+%% to use this parse transform simply ensure the first clause of you function is:
+%%      Name(Args...) -> parser:input(Arg);
+%% followed by clauses where Arg is replaced by a binary expr, of the form, <<Before,Pat,After>> where Pat is a string or a list of (alternative) strings.
+
 
 -define(debug(Value),(fun (__V__) -> ?debug("~s = ~p",[??Value,__V__]),__V__ end)(Value)).
 % -define(debug(Pattern,Args),
@@ -60,18 +65,18 @@ transform(Form) ->
       end;
     _ -> Form
   end,
-  % RRes = if not(is_list(Res)) ->
-  % case erl_syntax:type(Res) of
-    % attribute ->
-      % case erl_syntax:atom_value(erl_syntax:attribute_name(Res)) of
-        % type -> [];
-        % opaque -> [];
-        % spec -> [];
-        % _ -> Res
-      % end;
-    % _ -> Res
-  % end; true -> Res end,
-  % io:format("~s~n~n",[erl_prettypr:format(?forms([RRes]))]),
+  RRes = if not(is_list(Res)) ->
+  case erl_syntax:type(Res) of
+  attribute ->
+      case erl_syntax:atom_value(erl_syntax:attribute_name(Res)) of
+        type -> [];
+        opaque -> [];
+        spec -> [];
+        _ -> Res
+      end;
+  _ -> Res
+  end; true -> Res end,
+  io:format("~s~n~n",[erl_prettypr:format(?forms([RRes]))]),
   Res.
 
 transform(MatchMod,Name,Arity,InputIX,Clauses1) ->

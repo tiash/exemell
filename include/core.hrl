@@ -1,4 +1,4 @@
--compile([{parse_transform,parsetransform_parser}]).
+-compile([{parse_transform,parser_pt}]).
 
 %% Define lots of nice macros so we can use cryptic horrid names the functions
 -ifndef(event_callback).

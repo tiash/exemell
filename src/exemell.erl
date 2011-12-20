@@ -1,4 +1,4 @@
--module(parse_test).
+-module(exemell).
 
 -export([xml/1]).
 -export([userstate/1,userstate/2]).
@@ -11,7 +11,7 @@
 -compile([inline]).
 % -compile([bin_opt_info]).
 
--include("xmlparser_core.hrl").
+-include("core.hrl").
 
 
 
