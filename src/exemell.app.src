@@ -30,7 +30,7 @@
 {application, exemell,
  [
   {description, "Yet another XML parser for erlang"},
-  {vsn, '0.1a'},
+  {vsn, "0.1a"},
   {registered, []},
   {applications, [
                   kernel,
