@@ -65,18 +65,18 @@ transform(Form) ->
       end;
     _ -> Form
   end,
-  RRes = if not(is_list(Res)) ->
-  case erl_syntax:type(Res) of
-  attribute ->
-      case erl_syntax:atom_value(erl_syntax:attribute_name(Res)) of
-        type -> [];
-        opaque -> [];
-        spec -> [];
-        _ -> Res
-      end;
-  _ -> Res
-  end; true -> Res end,
-  io:format("~s~n~n",[erl_prettypr:format(?forms([RRes]))]),
+  % RRes = if not(is_list(Res)) ->
+  % case erl_syntax:type(Res) of
+  % attribute ->
+      % case erl_syntax:atom_value(erl_syntax:attribute_name(Res)) of
+        % type -> [];
+        % opaque -> [];
+        % spec -> [];
+        % _ -> Res
+      % end;
+  % _ -> Res
+  % end; true -> Res end,
+  % io:format("~s~n~n",[erl_prettypr:format(?forms([RRes]))]),
   Res.
 
 transform(MatchMod,Name,Arity,InputIX,Clauses1) ->
@@ -228,9 +228,7 @@ marker(Form) ->
   case erl_syntax:type(Form) of
     application ->
       case erl_syntax_lib:analyze_application(Form) of
-        % {parser,{binary,1}} -> {binary,hd(erl_syntax:application_arguments(Form))};
-        % {parser,{iolist,1}} -> {iolist,hd(erl_syntax:application_arguments(Form))};
-        {parser,{input,1}} -> {binary,hd(erl_syntax:application_arguments(Form))};
+        {parser,{binary,1}} -> {binary,hd(erl_syntax:application_arguments(Form))};
         _ -> false
       end;
     _ -> false

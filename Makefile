@@ -1,4 +1,5 @@
 REBAR=rebar
+DIALYZER=dialyzer
 all: compile
 
 dependencies: 
@@ -10,8 +11,6 @@ clean:
 compile: 
 	@${REBAR} compile
 
-dialyze: compile
-	@${REBAR} analyze
 
 xref: compile
 	@${REBAR} xref # don't scan dependencies...
@@ -23,5 +22,13 @@ doc:
 
 test: compile
 	@${REBAR} eunit
+
+.plt:
+	@${DIALYZER} --build_plt --output_plt plt --apps erts kernel stdlib
+plt: .plt
+
+dialyze: plt
+	@${DIALYZER} --plt plt --src -I include -r src
+
 
 

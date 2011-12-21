@@ -1,6 +1,6 @@
 -module(exemell).
 
--export([xml/1]).
+-export([xml/1,xml/2,parser/2]).
 -export([userstate/1,userstate/2]).
 -export([newNamespace/2,newNamespace/3,newNamespace/4]).
 -export([namespace/2,namespace/3]).
@@ -11,73 +11,98 @@
 -compile([inline]).
 % -compile([bin_opt_info]).
 
--include("core.hrl").
+
+-export_type([state/3]).
+-define(entrypoint,run_parser).
+
+-include("exemell.hrl").
+-include("parser.hrl").
 
 
 
--record(global,
+-record(global, {entities, intern, namespaces, application, meta, sections = 0, userstate }).
+-opaque global(Block,Attr,User) ::
+  #global
   { entities :: dict(binary() | {'%',binary()},term())
   , intern :: dict(binary(),binary())
-  , namespaces :: dict(nsuri(),namespace())
-  , application :: fun((iolist(),global()) -> global())
-  , meta :: fun((iolist(),global()) -> global())
-  , sections = 0 :: non_neg_integer()
-  , userstate :: userstate()
-  }).
--define(childfun(),fun((block()|close,userstate(),parser_state()) -> {userstate()|block(),parser_state()})).
--define(blockfuna(),fun((nsuri(),ptag(),[attribute()],parser_state()) -> 
-                        ( {skip,parser_state()}
-                        | {nochildren,block(),parser_state()}
-                        | {blob,fun((iolist(),userstate(),parser_state())->{block(),parser_state()}),userstate(),parser_state()}
-                        | {children,?childfun(),userstate(),parser_state()}))).
--define(blockfunb(),fun((nsuri(),ptag(),[attribute()],[block()]|none,parser_state()) -> {block()|skip,parser_state()})).
--define(blockfun(),?blockfuna()|?blockfunb()).
--define(attrfun(),fun((nsuri(),ptag(),iolist(),parser_state())->{attribute(),parser_state()})).
--record(namespace,
-  { uri :: nsuri()
-  , prefix :: binary()
-  , block :: ?blockfun()
-  , attribute :: ?attrfun()
-  }).
-
--define(local, primary_ns :: namespace()
-             , secondary_ns :: dict(binary(),namespace())
-             , parent :: local()
-             ).
+  , namespaces :: dict(nsuri(),namespace(Block,Attr,User))
+  , application :: applicationFun(Block,Attr,User)
+  , meta :: metaFun(Block,Attr,User)
+  , sections :: non_neg_integer()
+  , userstate :: User
+  }.
+-define(local, primary_ns, secondary_ns, parent).
 -define(parent(Parent), primary_ns = primaryNamespace(?state{local=Parent}), secondary_ns = secondaryNamespaces(?state{local=Parent}), parent=Parent).
           
--record(attrs,{tag::tag(),attributes::[attribute()],?local}).
--record(block,{tag::tag(),function::?childfun(),state::userstate(),?local}).
--record(attr,{name::tag(),parent::local()}).
--record(attrval,{name::tag(),value::[term()],parent::local()}).
+-record(local_attrs,{tag, attributes, primary_ns, secondary_ns, parent}).
+-type local_attrs(Block,Attribute,Global) ::
+  #local_attrs
+  { tag :: binary()
+  , attributes :: [{binary(), value()}]
+  , primary_ns :: namespace(Block,Attribute,Global)
+  , secondary_ns :: dict(binary(), namespace(Block,Attribute,Global))
+  , parent :: local_block(Block,Attribute,Global)
+  }.
+
+-record(local_attr,{name,parent}).
+
+-type local_attr(Block,Attribute,Global) ::
+  #local_attr
+  { name :: binary()
+  , parent :: local_attrs(Block,Attribute,Global)
+  }.
+
+-record(local_attrval,{name,value,parent}).
+
+-type local_attrval(Block,Attribute,Global) ::
+  #local_attrval
+  { name :: binary()
+  , value :: value()
+  , parent :: local_attrs(Block,Attribute,Global)
+  }.
+
+-record(local_block,{tag, function, state, primary_ns, secondary_ns, parent}).
+
+-type local_block(Block,Attribute,User) ::
+  #local_block
+  { tag :: binary()
+  , function :: childFun(State,Block,Attribute,User)
+  , state :: State
+  , primary_ns :: namespace(Block,Attribute,User)
+  , secondary_ns :: dict(binary(), namespace(Block,Attribute,User))
+  , parent :: local_block(Block,Attribute,User)
+  }.
 
 -type dict(_K,_V) :: dict().
--opaque global() :: #global{}.
--type local() :: #attr{} | #attrval{} | #attrs{} | #block{}.
--type namespace() :: #namespace{}.
--type block() :: term() | iolist().
--type attribute() :: term().
--type userstate() :: term().
--type nsuri() :: none | binary().
--type ptag() :: binary() | atom().
--type tag() :: ptag() | {binary(),ptag()}.
--record(?MODULE,{global::global(),local::local()}).
+-record(?MODULE,{global,local}).
 -define(state,#?MODULE).
 
--type parser_state() :: ?state{}.
-
+-opaque state(Block,Attribute,User,Local) :: ?state{global::global(Block,Attribute,User),local::Local}.
+-type state(Block,Attribute,User) :: state(Block,Attribute,User,local_attr(Block,Attribute,User) | local_attrs(Block,Attribute,User) | local_attrval(Block,Attribute,User) | local_block(Block,Attribute,User)).
 -define(xml_nsuri,<<"http://www.w3.org/XML/1998/namespace">>).
 
-xml(Input) -> xml(Input,newGlobalState()).
-xml(Input,GlobalState) ->
-  case parser(Input,newRootState(GlobalState)) of
-    {ok,ParserState1=?state{local=#block{tag={'#ROOT'},function=Fun,state=State}}} ->
-      {Res,ParserState2} = Fun(close,State,ParserState1),
-      {Res,ParserState2?state.global};
-    Err -> Err
+-spec xml(input()) -> {[child()],state(child(),attribute(),undefined,undefined)}.
+xml(Input) -> parser(Input,newGlobalState()).
+-spec xml(input(),User) -> {[child()],state(child(),attribute(),User,undefined)}.
+xml(Input,User) -> parser(Input,newRootState(User)).
+
+-spec parser(input(),state(Block,Attribute,User,any())) -> {[Block|value()],state(Block,Attribute,User,undefined)}.
+parser(Input,State0=?state{}) ->
+  State1 = State0?state{local=#local_block{tag='#ROOT#',function = fun (Child,Accum,State) -> {[Child|Accum],State} end, state=[], secondary_ns = dict:new()}},
+  State2 = xmlns(none,State1),
+  State3 = xmlns(<<"xml">>,?xml_nsuri,State2),
+  case run_parser(Input,State3) of
+    {ok,State4=?state{local=#local_block{tag='#ROOT#',state=Res}}} ->
+      {lists:reverse(Res),State4?state{local=undefined}};
+    {ok,State4} -> {error,State4};
+    Error -> Error
   end.
+
+-spec newGlobalState() -> state(block(),attribute(),undefined,undefined).
 newGlobalState() -> newGlobalState(undefined).
+-spec newGlobalState(User) -> state(block(),attribute(),User,undefined).
 newGlobalState(UserState) -> newGlobalState(UserState,fun (_Application,GlobalState) -> GlobalState end, fun (_Meta,GlobalState) -> GlobalState end).
+-spec newGlobalState(User, metaFun(Block,Attribute,User), applicationFun(Block,Attribute,User)) -> state(Block,Attribute,User,undefined).
 newGlobalState(UserState,Application,Meta) ->
   GlobalState1 = #global{entities=dict:new(),intern=dict:new(),namespaces=dict:new(),application=Application,meta=Meta,sections=0,userstate=UserState},
   ?state{global=GlobalState2} = entity(<<"nbsp">>,<<" ">>,
@@ -85,13 +110,12 @@ newGlobalState(UserState,Application,Meta) ->
                                 entity(<<"gt">>,<<">">>,
                                 entity(<<"amp">>,<<"&">>,
                                 entity(<<"quot">>,<<"\"">>,
-                                entity(<<"apos">>,<<"\'">>,
                                 namespace(?xml_nsuri,newNamespace(<<"xml">>,?xml_nsuri),
-                                namespace(none,newNamespace(none,none),?state{global=GlobalState1})))))))),
+                                namespace(none,newNamespace(none,none),?state{global=GlobalState1}))))))),
   GlobalState2.
 
 newRootState(GlobalState) ->
-  ParserState = ?state{global=GlobalState,local=#block{
+  ParserState = ?state{global=GlobalState,local=#local_block{
       tag={'#ROOT'},
       function=fun (close,Accum,PS) -> {lists:reverse(Accum),PS};
                    (Child,Accum,PS) -> {[Child|Accum],PS}
@@ -103,14 +127,14 @@ newRootState(GlobalState) ->
   xmlns(<<"xml">>,?xml_nsuri,xmlns(none,ParserState)).
 
 
--spec userstate(parser_state()) -> userstate().
--spec userstate(userstate(),parser_state()) -> userstate().
+-spec userstate(state(Block,Attribute,User)) -> User when Block :: block(), Attribute :: attribute().
+-spec userstate(User,state(Block,Attribute,any())) -> state(Block,Attribute,User) when Block :: block(), Attribute :: attribute().
 userstate(?state{global=#global{userstate=UserState}}) -> UserState.
 userstate(UserState,ParserState=?state{global=GlobalState}) ->
   ParserState?state{global=GlobalState#global{userstate=UserState}}.
 
--spec namespace(nsuri(),parser_state()) -> {namespace(),parser_state()}.
--spec namespace(nsuri(),namespace(),parser_state()) -> parser_state().
+-spec namespace(nsuri(),Parser) -> {namespace(Block,Attribute,User),Parser} when Parser :: state(Block,Attribute,User).
+-spec namespace(nsuri(),namespace(Block,Attribute,Global),state(Block,Attribute,Global)) -> state(Block,Attribute,Global) when Block :: block(), Attribute :: attribute().
 namespace(URI,ParserState=?state{global=#global{namespaces=Namespaces}}) ->
   case dict:find(URI,Namespaces) of
     {ok,Namespace} -> {Namespace,ParserState};
@@ -121,9 +145,9 @@ namespace(URI,ParserState=?state{global=#global{namespaces=Namespaces}}) ->
 namespace(URI,Namespace,ParserState=?state{global=GlobalState=#global{namespaces=Namespaces}}) ->
       ParserState?state{global=GlobalState#global{namespaces=dict:store(URI,Namespace,Namespaces)}}.
 
--spec newNamespace(binary()|none,nsuri()) -> namespace().
--spec newNamespace(binary()|none,nsuri(), ?blockfun()) -> namespace().
--spec newNamespace(binary()|none,nsuri(), ?attrfun(), ?blockfun()) -> namespace().
+-spec newNamespace(binary()|none,nsuri()) -> namespace(block(),attribute(),_).
+-spec newNamespace(binary()|none,nsuri(), blockFuns(Block,Attribute,User)) -> namespace(Block,Attribute,User) when Block :: block(), Attribute :: attribute().
+-spec newNamespace(binary()|none,nsuri(), attrFun(Block,Attribute,User), blockFuns(Block,Attribute,User)) -> namespace(Block,Attribute,User) when Block :: block(), Attribute :: attribute().
 newNamespace(Prefix,URI) ->
   newNamespace(Prefix,URI,fun block/4).
 newNamespace(Prefix,URI,BlockFun) ->
@@ -131,25 +155,25 @@ newNamespace(Prefix,URI,BlockFun) ->
 newNamespace(Prefix,URI,AttrFun,BlockFun) ->
   #namespace{uri=URI,prefix=Prefix,attribute=AttrFun,block=BlockFun}.
 
--spec primaryNamespace(parser_state()) -> namespace().
--spec primaryNamespace(namespace(),parser_state()) -> parser_state().
-primaryNamespace(?state{local=#attrs{primary_ns=Namespace}}) -> Namespace;
-primaryNamespace(?state{local=#block{primary_ns=Namespace}}) -> Namespace.
-primaryNamespace(Namespace,ParserState=?state{local=LocalState=#attrs{}}) ->
-  ParserState?state{local=LocalState#attrs{primary_ns=Namespace}};
-primaryNamespace(Namespace,ParserState=?state{local=LocalState=#block{}}) ->
-  ParserState?state{local=LocalState#block{primary_ns=Namespace}}.
+-spec primaryNamespace(state(Block,Attribute,User)) -> namespace(Block,Attribute,User).
+-spec primaryNamespace(namespace(Block,Attribute,User),State) -> State when State :: state(Block,Attribute,User).
+primaryNamespace(?state{local=#local_attrs{primary_ns=Namespace}}) -> Namespace;
+primaryNamespace(?state{local=#local_block{primary_ns=Namespace}}) -> Namespace.
+primaryNamespace(Namespace,ParserState=?state{local=LocalState=#local_attrs{}}) ->
+  ParserState?state{local=LocalState#local_attrs{primary_ns=Namespace}};
+primaryNamespace(Namespace,ParserState=?state{local=LocalState=#local_block{}}) ->
+  ParserState?state{local=LocalState#local_block{primary_ns=Namespace}}.
 
--spec secondaryNamespace(binary(),parser_state()) -> namespace().
--spec secondaryNamespace(binary(),namespace(),parser_state()) -> parser_state().
--spec secondaryNamespaces(parser_state()) -> dict(binary(),namespace()).
+-spec secondaryNamespace(binary(),state(Block,Attribute,Global)) -> namespace(NBlock,NAttribute,Global) when NBlock :: Block, NAttribute :: Attribute.
+-spec secondaryNamespace(binary(),namespace(Block,Attribute,Global),state(NBlock,NAttribute,Global)) -> state(Block,Attribute,Global) when NBlock :: Block, NAttribute :: Attribute.
+-spec secondaryNamespaces(state(Block,Attribute,Global)) -> dict(binary(),namespace(NBlock,NAttribute,Global)) when NBlock :: Block, NAttribute :: Attribute.
 secondaryNamespace(Prefix,ParserState) -> dict:fetch(Prefix,secondaryNamespaces(ParserState)).
 secondaryNamespace(Prefix,Namespace,ParserState) ->
   secondaryNamespaces(dict:store(Prefix,Namespace,secondaryNamespaces(ParserState)),ParserState).
-secondaryNamespaces(?state{local=#attrs{secondary_ns=Namespaces}}) -> Namespaces;
-secondaryNamespaces(?state{local=#block{secondary_ns=Namespaces}}) -> Namespaces.
-secondaryNamespaces(Namespaces,ParserState=?state{local=LocalState=#attrs{}}) -> ParserState?state{local=LocalState#attrs{secondary_ns=Namespaces}};
-secondaryNamespaces(Namespaces,ParserState=?state{local=LocalState=#block{}}) -> ParserState?state{local=LocalState#block{secondary_ns=Namespaces}}.
+secondaryNamespaces(?state{local=#local_attrs{secondary_ns=Namespaces}}) -> Namespaces;
+secondaryNamespaces(?state{local=#local_block{secondary_ns=Namespaces}}) -> Namespaces.
+secondaryNamespaces(Namespaces,ParserState=?state{local=LocalState=#local_attrs{}}) -> ParserState?state{local=LocalState#local_attrs{secondary_ns=Namespaces}};
+secondaryNamespaces(Namespaces,ParserState=?state{local=LocalState=#local_block{}}) -> ParserState?state{local=LocalState#local_block{secondary_ns=Namespaces}}.
 
 -spec dict:fetch(K,dict(K,V)) -> V.
 -spec dict:find(K,dict(K,V)) -> {ok,V} | error.
@@ -157,9 +181,9 @@ secondaryNamespaces(Namespaces,ParserState=?state{local=LocalState=#block{}}) ->
 -spec dict:from_list([{K,V}]) -> dict(K,V).
 -spec dict:new() -> dict(any(),any()).
 
-% -spec entity(binary()|{'%',binary()},parser_state()) -> term().
--spec entity(binary()|{'%',binary()},parser_state()) -> {term(),parser_state()}.
--spec entity(binary()|{'%',binary()},term(),parser_state()) -> parser_state().
+% -spec entity(binary()|{'%',binary()},state(UserState)) -> term().
+-spec entity(binary()|{'%',binary()},Parser) -> {value(),Parser} when Parser :: state(any(),any(),any()).
+-spec entity(binary()|{'%',binary()},value(),Parser) -> Parser when Parser :: state(any(),any(),any()).
 entity(Name,ParserState=?state{global=#global{entities=Entities}}) ->
   case dict:find(iolist_to_binary(Name),Entities) of
     {ok,Res} -> {Res,ParserState};
@@ -175,8 +199,8 @@ entity(Name,ParserState=?state{global=#global{entities=Entities}}) ->
 entity(Name,Value,ParserState=?state{global=GlobalState=#global{entities=Entities}}) ->
   ParserState?state{global=GlobalState#global{entities=dict:store(Name,Value,Entities)}}.
 
--spec intern(iolist(),parser_state()) -> {binary(),parser_state()}.
--spec name(iolist(),parser_state()) -> {atom()|binary(),parser_state()}.
+-spec intern(input(),Parser) -> {binary(),Parser} when Parser :: state(any(),any(),any()).
+-spec name(input(),Parser) -> {tag(),Parser} when Parser :: state(any(),any(),any()).
 % intern(Value,ParserState) -> {Value,ParserState}.
 intern(Value,ParserState=?state{global=Global=#global{intern=Interned}}) when is_binary(Value) ->
   case dict:find(Value,Interned) of
@@ -195,12 +219,12 @@ name(Name,ParserState) when is_binary(Name) ->
 name(Name,ParserState) -> name(iolist_to_binary(Name),ParserState).
         
 
--spec addChild(block(),parser_state()) -> parser_state().
-addChild(Child,ParserState=?state{local=#block{function=Fun,state=UserState}}) ->
+-spec addChild(Block,Parser) -> Parser when Parser :: state(Block,any(),any(),local_block(Block,any(),any())).
+addChild(Child,ParserState=?state{local=#local_block{function=Fun,state=UserState}}) ->
   {NewUserState,NewParserState} = Fun(Child,UserState,ParserState),
-  NewParserState?state{local=NewParserState?state.local#block{state=NewUserState}}.
+  NewParserState?state{local=NewParserState?state.local#local_block{state=NewUserState}}.
 
--spec addAttribute(tag(),iolist(),parser_state()) -> parser_state().
+-spec addAttribute(nstag(),value(),Parser) -> Parser when Parser :: state(any(),any(),any(),local_attrs(any(),any(),any())).
 addAttribute(xmlns,Value,ParserState) ->
   % io:format("addAttribute(xmlns,~p,...)~n",[Value]),
   xmlns(Value,ParserState);
@@ -210,19 +234,27 @@ addAttribute({<<"xmlns">>,Prefix_},Value,ParserState) ->
      is_binary(Prefix_) -> Prefix = Prefix_
   end,
   xmlns(Prefix,Value,ParserState);
-addAttribute(Name,Value,ParserState=?state{local=(LocalState=#attrs{attributes=Attributes})}) ->
+addAttribute(Name,Value,ParserState=?state{local=(LocalState=#local_attrs{attributes=Attributes})}) ->
   % io:format("addAttribute(~p,~p,...)~n",[Name,Value]),
-  ParserState?state{local=LocalState#attrs{attributes=[{Name,Value}|Attributes]}}.
+  ParserState?state{local=LocalState#local_attrs{attributes=[{Name,Value}|Attributes]}}.
 
-% -spec attribute(nsuri(),ptag(),iolist(),parser_state()) -> {{tag(),iolist()}|skip,parser_state()}.
+% -spec attribute(nsuri(),tag(),iolist(),state(UserState,Local)) -> {{nstag(),iolist()}|skip,state(UserState,Local)}.
 % attribute(none,Name,Value,ParserState) ->
   % {{Name,Value},ParserState};
 % attribute(Uri,Name,Value,ParserState) ->
   % {{{Uri,Name},Value},ParserState}.
 
--spec block(nsuri(),ptag(),[attribute()],[block()]|none,parser_state()) -> {{tag(),[attribute()],[block()]},parser_state()}.
--spec block(nsuri(),ptag(),[attribute()],parser_state()) -> {children,?childfun(),{tag(),[attribute()],[block()]},parser_state()}.
--spec children(block()|close,{tag(),[attribute()],[block()]},parser_state()) -> {{tag(),[attribute()],[block()]},parser_state()}.
+-spec block(nsuri(),tag(),[Attribute],[Block|value()]|none,Parser) -> {{nstag(),[Attribute],[Block|value()]|none},Parser}
+        when Parser :: state(Block,Attribute,any()),
+             is_subtype({nstag(),[Attribute],[Block|value()]|none},Block).
+
+-spec block(nsuri(),tag(),[Attribute],Parser) -> block_children_({nstag(),[Attribute],[Block|value()]},{nstag(),[Attribute],[Block|value()]},Parser)
+        when Parser :: state(Block,Attribute,any()),
+             is_subtype({nstag(),[Attribute],[Block|value()]|none},Block).
+
+-spec children(none,{nstag(),[Attribute],[]},Parser) -> {{nstag(),[Attribute],none},Parser}
+        ;     (close,{nstag(),[Attribute],[Block|value()]},Parser) -> {{nstag(),[Attribute],[Block|value()]},Parser}
+        ;     (Block|value(),{nstag(),[Attribute],[Block|value()]},Parser) -> {{nstag(),[Attribute],[Block|value()]},Parser}.
 block(none,Tag,Attributes,Children,ParserState) ->
   {{Tag,Attributes,Children},ParserState};
 block(Uri,Tag,Attributes,Children,ParserState) ->
@@ -231,16 +263,18 @@ block(none,Tag,Attributes,ParserState) ->
   {children,fun children/3,{Tag,Attributes,[]},ParserState};
 block(Uri,Tag,Attributes,ParserState) ->
   {children,fun children/3,{{Uri,Tag},Attributes,[]},ParserState}.
+children(none,{Tag,Attributes,[]},ParserState) ->
+  {{Tag,Attributes,none},ParserState};
 children(close,{Tag,Attributes,Children},ParserState) ->
   {{Tag,Attributes,lists:reverse(Children)},ParserState};
 children(Child,{Tag,Attributes,Children},ParserState) ->
   {{Tag,Attributes,[Child,Children]},ParserState}.
 
--spec attribute(nsuri(),ptag(),iolist(),parser_state()) -> {attribute(),parser_state()}.
+-spec attribute(nsuri(),tag(),value(),Parser) -> {{nstag(),value()},Parser} when Parser :: state(any(),Attribute,any()), is_subtype({nstag(),value()},Attribute).
 attribute(none,Name,Value,ParserState) -> {{Name,Value},ParserState};
 attribute(NS,Name,Value,ParserState) -> {{{NS,Name},Value},ParserState}.
 
--spec xmlns(ptag(),iolist(),parser_state()) -> parser_state().
+-spec xmlns(tag(),value(),Parser) -> Parser when Parser :: state(any(),any(),any()).
 xmlns(Name,Value,ParserState) when is_atom(Name) ->
   {BName,ParserState2} = intern(atom_to_binary(Name,utf8),ParserState),
   xmlns(BName,Value,ParserState2);
@@ -250,7 +284,7 @@ xmlns(Name,none,ParserState) ->
 xmlns(Name,Value,ParserState) ->
   {Namespace,ParserState2} = namespace(iolist_to_binary(Value),ParserState),
   secondaryNamespace(Name,Namespace,ParserState2).
--spec xmlns(iolist(),parser_state()) -> parser_state().
+-spec xmlns(value(),Parser) -> Parser when Parser :: state(any(),any(),any()).
 xmlns(none,ParserState) ->
   {Namespace,ParserState2} = namespace(none,ParserState),
   primaryNamespace(Namespace,ParserState2);
@@ -258,7 +292,7 @@ xmlns(Value,ParserState) ->
   {Namespace,ParserState2} = namespace(iolist_to_binary(Value),ParserState),
   primaryNamespace(Namespace,ParserState2).
 
--spec nsify(iolist(),parser_state()) -> {tag(),parser_state()}.
+-spec nsify(input(),Parser) -> {nstag(),Parser} when Parser :: state(any(),any(),any()).
 nsify(Input,State) when is_atom(Input) -> {Input,State};
 nsify(Input_,State1) ->
   Input = iolist_to_binary(Input_),
@@ -287,13 +321,13 @@ nsify(Input_,State1) ->
 ?event_open_tag(RTag,{ParserState1,Input}) ->
   % io:format("OTag=~p~n",[RTag]),
   {Tag,ParserState2=?state{local=LocalState}} = nsify(RTag,ParserState1),
-  {ParserState2?state{local=#attrs{tag=Tag,attributes=[],?parent(LocalState)}},Input}.
+  {ParserState2?state{local=#local_attrs{tag=Tag,attributes=[],?parent(LocalState)}},Input}.
 
 ?event_end_block(CTag_,{ParserState1,Input}) ->
   % io:format("CTag = ~p~n",[CTag_]),
-  {CTag,ParserState2=?state{local=#block{tag=Tag,function=Fun,state=UserState}}} = nsify(CTag_,ParserState1),
+  {CTag,ParserState2=?state{local=#local_block{tag=Tag,function=Fun,state=UserState}}} = nsify(CTag_,ParserState1),
   {Block,ParserState3} = Fun(close,UserState,ParserState2),
-  ParserState4 = addChild(Block,ParserState3?state{local=ParserState3?state.local#block.parent}),
+  ParserState4 = addChild(Block,ParserState3?state{local=ParserState3?state.local#local_block.parent}),
   case CTag of
     Tag -> {ParserState4,Input};
     _ ->
@@ -302,9 +336,9 @@ nsify(Input_,State1) ->
 
 ?event_attribute_name(Name_,{ParserState1,Input}) ->
   {Name,ParserState2=?state{local=Parent}} = nsify(Name_,ParserState1),
-  {ParserState2?state{local=#attr{name=Name,parent=Parent}},Input}.
+  {ParserState2?state{local=#local_attr{name=Name,parent=Parent}},Input}.
 
-preclose_tag(ParserState1=?state{local=#attrs{tag=Tag,attributes=Attrs_}}) ->
+preclose_tag(ParserState1=?state{local=#local_attrs{tag=Tag,attributes=Attrs_}}) ->
   {Attrs,ParserState2} = process_attrs(lists:reverse(Attrs_),ParserState1,[]),
   {Tag,Attrs,ParserState2}.
 
@@ -351,8 +385,8 @@ process_attrs([{Name,Value}|Attrs],ParserState1,Accum) ->
     {skip,ParserState3} -> erlang:exit(todo), {ParserState3,Input};
     {blob,_BFun,_State,_ParserState3=?state{local=_Parent}} ->
       erlang:exit(todo);
-    {children,CFun,State,ParserState3=?state{local=#attrs{parent=Parent,primary_ns=Primary,secondary_ns=Secondary}}} ->
-      {ParserState3?state{local=#block{tag=Tag,function=CFun,state=State,parent=Parent,primary_ns=Primary,secondary_ns=Secondary}},Input}
+    {children,CFun,State,ParserState3=?state{local=#local_attrs{parent=Parent,primary_ns=Primary,secondary_ns=Secondary}}} ->
+      {ParserState3?state{local=#local_block{tag=Tag,function=CFun,state=State,parent=Parent,primary_ns=Primary,secondary_ns=Secondary}},Input}
   end.
 
 
@@ -371,37 +405,37 @@ process_attrs([{Name,Value}|Attrs],ParserState1,Accum) ->
   % io:format("close/tag[3]"),
   if is_function(Fun,4) ->
         case Fun(Uri,PTag,Attrs,ParserState2) of
-          {skip,ParserState3=?state{local=#attrs{parent=Parent}}} -> {ParserState3?state{local=Parent},Input};
+          {skip,ParserState3=?state{local=#local_attrs{parent=Parent}}} -> {ParserState3?state{local=Parent},Input};
           {blob,BFun,State,ParserState3} ->
             % io:format("close/tag[4]"),
-            {Node,ParserState4=?state{local=#attrs{parent=Parent}}} = BFun(none,State,ParserState3),
+            {Node,ParserState4=?state{local=#local_attrs{parent=Parent}}} = BFun(none,State,ParserState3),
             % io:format("close/tag[5]"),
             {addChild(Node,ParserState4?state{local=Parent}),Input};
           {children,CFun,State,ParserState3} ->
             % io:format("close/tag[6]"),
-            {Node,ParserState4=?state{local=#attrs{parent=Parent}}} = CFun(close,State,ParserState3),
+            {Node,ParserState4=?state{local=#local_attrs{parent=Parent}}} = CFun(close,State,ParserState3),
             % io:format("close/tag[7]"),
             {addChild(Node,ParserState4?state{local=Parent}),Input}
         end;
      is_function(Fun,5) ->
         % io:format("close/tag[8]"),
-        {Node,ParserState3=?state{local=#attrs{parent=Parent}}} = Fun(Uri,PTag,Attrs,none,ParserState2),
+        {Node,ParserState3=?state{local=#local_attrs{parent=Parent}}} = Fun(Uri,PTag,Attrs,none,ParserState2),
         % io:format("close/tag[9]"),
         {addChild(Node,ParserState3?state{local=Parent}),Input}
   end.
 
-?event_attribute_begin_value({ParserState=?state{local=#attr{name=Name,parent=Parent}},Input}) ->
-  {ParserState?state{local=#attrval{name=Name,value=[],parent=Parent}},Input}.
-?event_attribute_value(Value,{ParserState=?state{local=#attr{name=Name,parent=Parent}},Input}) ->
+?event_attribute_begin_value({ParserState=?state{local=#local_attr{name=Name,parent=Parent}},Input}) ->
+  {ParserState?state{local=#local_attrval{name=Name,value=[],parent=Parent}},Input}.
+?event_attribute_value(Value,{ParserState=?state{local=#local_attr{name=Name,parent=Parent}},Input}) ->
   {addAttribute(Name,Value,ParserState?state{local=Parent}),Input}.
 
-?event_attribute_end_value({ParserState=?state{local=#attrval{name=Name,value=Value,parent=Parent}},Input}) ->
+?event_attribute_end_value({ParserState=?state{local=#local_attrval{name=Name,value=Value,parent=Parent}},Input}) ->
   {addAttribute(Name,lists:reverse(Value),ParserState?state{local=Parent}),Input}.
-?event_attribute_value_text(Text,{ParserState=?state{local=Local=#attrval{value=Value}},Input}) ->
-  {ParserState?state{local=Local#attrval{value=[Text|Value]}},Input}.
+?event_attribute_value_text(Text,{ParserState=?state{local=Local=#local_attrval{value=Value}},Input}) ->
+  {ParserState?state{local=Local#local_attrval{value=[Text|Value]}},Input}.
 ?event_attribute_value_entity(Name,{ParserState1,Input}) ->
-  {Entity,ParserState2=?state{local=Local=#attrval{value=Value}}} = entity(Name,ParserState1),
-  {ParserState2?state{local=Local#attrval{value=[Entity|Value]}},Input}.
+  {Entity,ParserState2=?state{local=Local=#local_attrval{value=Value}}} = entity(Name,ParserState1),
+  {ParserState2?state{local=Local#local_attrval{value=[Entity|Value]}},Input}.
 
 ?event_end_section({ParserState,Input}) ->
   {decrement_section(ParserState),Input}.
@@ -422,18 +456,19 @@ process_attrs([{Name,Value}|Attrs],ParserState1,Accum) ->
   end.
 
 
+
 decrement_section(_State) -> erlang:error(todo).
 increment_section(_State) -> erlang:error(todo).
 
 ignore_sections(Input,0) -> Input;
 ignore_sections(Input,N) -> ignore_sections_(Input,N).
-ignore_sections_(Input,N) -> parser:input(Input);
+ignore_sections_(Input,N) -> ?parse_input(Input);
 ignore_sections_(<<_,"]]>",Input>>,N) ->
   ignore_sections(Input,N-1);
 ignore_sections_(<<_,"<![",Input>>,N) ->
   ignore_sections(Input,N+1).
 
-scan_section(Input) -> parser:input(Input);
+scan_section(Input) -> ?parse_input(Input);
 scan_section(<<Section,"]]>",Input>>) -> {Section,Input}.
 
 
