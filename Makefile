@@ -23,12 +23,15 @@ doc:
 test: compile
 	@${REBAR} eunit
 
-.plt:
-	@${DIALYZER} --build_plt --output_plt plt --apps erts kernel stdlib
-plt: .plt
+plts=erts.plt kernel.plt stdlib.plt
 
-dialyze: plt
-	@${DIALYZER} --plt plt --src -I include -r src
+$(plts): %.plt:
+	@${DIALYZER} --build_plt --output_plt $@ --apps $*
+
+plt: $(plts)
+
+dialyze:
+	@${DIALYZER} -pa ebin --plts $(plts) -I include -r ebin
 
 
 

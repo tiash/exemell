@@ -139,8 +139,9 @@ namespace(URI,ParserState=?state{global=#global{namespaces=Namespaces}}) ->
   case dict:find(URI,Namespaces) of
     {ok,Namespace} -> {Namespace,ParserState};
     error ->
-      Namespace = newNamespace(none,URI),
-      {Namespace,namespace(URI,Namespace,ParserState)}
+      {Namespace0,ParserState1} = namespace(none,ParserState),
+      Namespace = Namespace0#namespace{uri=URI},
+      {Namespace,namespace(URI,Namespace,ParserState1)}
   end.
 namespace(URI,Namespace,ParserState=?state{global=GlobalState=#global{namespaces=Namespaces}}) ->
       ParserState?state{global=GlobalState#global{namespaces=dict:store(URI,Namespace,Namespaces)}}.
