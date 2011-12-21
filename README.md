@@ -6,7 +6,9 @@ Yet another XML Parser
 =====================
 
 This parser was built with two main goals:
+
 * binary parsing
+
 * Namespace specific parsing
 
 It also includes a parser _parse transform_ (aka [don't write these](http://www.erlang.org/doc/man/erl_id_trans.html#parse_transform-2))for generating building fast parsers (for binaries).
