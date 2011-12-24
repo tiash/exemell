@@ -1,17 +1,22 @@
-#!/usr/bin/escript 
--export([run/0,main/1,run_/0]).
-main(_Args) -> run_().
+-module(exemell_benchmark).
+
+-define(FILES
+    , "some.xml"
+    , "other.xml"
+    ).
 -define(RUNS,10).
+-export([run/0,main/1,run_/0]).
+main(_Args) ->
+  run_().
 run() ->
   c:c(?MODULE),
-  ?MODULE:run_().
+  ?MODULE:run_(),
+  init:stop().
 run_() ->
-  code:add_path("ebin"),
-  code:add_path("../ebin"),
   Files =
-    [ "some.xml"
+    [ ?FILES
     ],
-  io:format("Timings are for ~p runs.~n",[?RUNS]),
+  io:format("Timings are microseconds per ~p runs.~n",[?RUNS]),
   [ begin
       io:format("input: ~s.~n",[File]),
       {ok,XML} = file:read_file(File),

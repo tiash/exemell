@@ -54,5 +54,10 @@ Todos
 * Proper test cases, the module has by type annotated and dialyzer is happy.
 * Figure out how to make dialyzer like a polymorphic version of the module.
 
+Benchmark
+---------
+A simple parsing benchmark is included, though its results are likely meaningless for practical purposes. Enter the path(s)s to your favourite example XML in to `test/exemell_bennchmar.erl` and then `make benchmark`
+To include `erlsom` in the benchmark uncomment the dependency in `rebar.config` and `make dependencies; make all`.
+
 
 
