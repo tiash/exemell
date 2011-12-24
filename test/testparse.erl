@@ -1,32 +1,39 @@
--module(testparse).
-
--export([run/0]).
--export([run_/0]).
+#!/usr/bin/escript 
+-export([run/0,main/1,run_/0]).
+main(_Args) -> run_().
+-define(RUNS,10).
 run() ->
   c:c(?MODULE),
   ?MODULE:run_().
 run_() ->
-  c:c("../plugins/parsetransform_parser.erl"),
-  c:c(parse_test,[{i,"../include"}]),
-  {ok,XML1} = file:read_file("/Users/tias/Documents/moonlight/BL/src/com/lionet/projects/fas/data/test/editor/server/testbankfs/eLearning/OriginalCourse.xml"),
-  {ok,XML2} = file:read_file("/Users/tias/Desktop/Scratch/QTITest2/qti19.xml"),
-  {ok,XML3} = file:read_file("/Users/tias/Documents/moonlight/BL/src/com/lionet/database/data/services/createTables.xml"),
-  XMLs = [XML1,XML2,XML3],
-  TXTs = [binary_to_list(XML) || XML<-XMLs],
-  % {
-  % }
-  io:format("Startin tests..."),
-  { [ begin
-  timer:tc(ntimes(5,fun () -> parse_test:xml(XML), ok end)),
-  timer:tc(ntimes(10,fun () -> parse_test:xml(XML), ok end))
-  end || XML<-XMLs ] , [ begin
-  timer:tc(ntimes(5,fun () -> xmerl_scan:string(TXT), ok end)),
-  timer:tc(ntimes(10,fun () -> xmerl_scan:string(TXT), ok end))
-  end || TXT<-TXTs ] , [ begin
-  timer:tc(ntimes(5,fun () -> erlsom:simple_form(TXT), ok end)),
-  timer:tc(ntimes(10,fun () -> erlsom:simple_form(TXT), ok end))
-  end || TXT<-TXTs ] }
-  .
+  code:add_path("ebin"),
+  code:add_path("../ebin"),
+  Files =
+    [ "some.xml"
+    ],
+  io:format("Timings are for ~p runs.~n",[?RUNS]),
+  [ begin
+      io:format("input: ~s.~n",[File]),
+      {ok,XML} = file:read_file(File),
+      io:format("size: ~pkb (~pb).~n",[byte_size(XML) div 1024,byte_size(XML)]),
+      run(exemell,xml,[XML]),
+      TXT = binary_to_list(XML),
+      run(xmerl_scan,string,[TXT]),
+      run(erlsom,simple_form,[TXT])
+    end || File <- Files
+  ],
+  io:format("Done.~n").
+
+run(Module,Fun,Inputs) ->
+  case code:which(Module) of
+    non_existing -> 
+      io:format("~p: unavailable.~n",[Module]);
+    _ -> [begin
+            {First,_} = timer:tc(ntimes(?RUNS,fun () -> Module:Fun(Input), ok end)),
+            {Second,_} = timer:tc(ntimes(?RUNS,fun () -> Module:Fun(Input), ok end)),
+            io:format("~p: ~pmicro seconds (~pmicro seconds).~n",[Module,Second,First])
+          end || Input<-Inputs ]
+  end.
 
 ntimes(N,FUNC) -> fun () -> ntimes_(N,FUNC) end.
 ntimes_(0,_) -> ok;

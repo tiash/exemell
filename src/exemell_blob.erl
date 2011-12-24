@@ -4,3 +4,10 @@
 
 -callback xml_blob(input()|none,_State,Parser) -> {block()|skip,Parser}
               when Parser :: exemell:state().
+
+% TODO: Implement this
+% -behaviour(exemell_blob).
+
+
+
+

@@ -31,7 +31,7 @@ $(plts): %.plt:
 plt: $(plts)
 
 dialyze:
-	@${DIALYZER} -pa ebin --plts $(plts) -I include --src -r src
+	@${DIALYZER} --plts $(plts) -r ebin
 
 
 

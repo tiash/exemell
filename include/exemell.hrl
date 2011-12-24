@@ -31,6 +31,13 @@
 -define(parse_input(Input),parser:binary(Input)).
 -type input() :: binary().
 
+
+%% How to tell dialyzer that these should implement the appropriate behaviours.
+-type exemell() :: module().
+-type exemell_block() :: module().
+-type exemell_namespace() :: module().
+-type exemell_blob() :: module().
+
 -record(parse_instruction,{value::binary()}).
 -record(meta_instruction,{value::binary()}).
 

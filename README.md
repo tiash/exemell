@@ -11,9 +11,7 @@ This parser was built with two main goals:
 
 * Namespace specific parsing
 
-It also includes a parser _parse transform_ (aka [don't write these](http://www.erlang.org/doc/man/erl_id_trans.html#parse_transform-2))for generating building fast parsers (for binaries).
-
-The code is full of type specs, but dyalizer seems to crash... need to rewrite them to be less polymorphic.
+It uses the `parser_pt` _parse transform_ (aka [don't write these](http://www.erlang.org/doc/man/erl_id_trans.html#parse_transform-2)) for writing the actual parser.
 
 Components
 ----------
@@ -49,6 +47,12 @@ Caviats
 * The parser is hard coded to UTF8 encoding
 * Other than sanity checking there's no testing done.
 * Not all features are implemented yet (particularly skip and blob are not implemented).
+* There is an unavoidable warning about an undefined behaviour `exemell` (erlc is not favourable to self referentiality).
+
+Todos
+-----
+* Proper test cases, the module has by type annotated and dialyzer is happy.
+* Figure out how to make dialyzer like a polymorphic version of the module.
 
 
 

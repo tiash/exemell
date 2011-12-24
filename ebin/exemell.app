@@ -6,4 +6,4 @@
               {mod,{exemell,[]}},
               {env,[]},
               {modules,[exemell,exemell_blob,exemell_block,exemell_namespace,
-                        parser_pt,testparse]}]}.
+                        exemell_parser]}]}.
