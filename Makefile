@@ -23,7 +23,7 @@ doc:
 test: compile
 	@${REBAR} eunit
 
-plts=erts.plt kernel.plt stdlib.plt
+plts=erts.plt kernel.plt stdlib.plt syntax_tools.plt
 
 $(plts): %.plt:
 	@${DIALYZER} --build_plt --output_plt $@ --apps $*
@@ -31,7 +31,7 @@ $(plts): %.plt:
 plt: $(plts)
 
 dialyze:
-	@${DIALYZER} -pa ebin --plts $(plts) -I include -r ebin
+	@${DIALYZER} -pa ebin --plts $(plts) -I include --src -r src
 
 
 

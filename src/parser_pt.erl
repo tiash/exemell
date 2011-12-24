@@ -113,8 +113,7 @@ transform(MatchMod,Name,Arity,InputIX,Clauses1) ->
   Args = Args1 ++ [?var('Input')] ++ Args2,
   Patterns =
     orddict:update(terminal,fun (X) -> X end,
-    [{Args1 ++ [?var('Input')] ++ Args2,[],[?tuple([?atom(continue),?func([?clause([?var('MoreInput')],[],
-              [?apply(Name,Args1 ++ [?cons(?var('Input'),?var('MoreInput'))] ++ Args2)])])])]}],
+    [{[?underscore || _<-Args1] ++ [?underscore] ++ [?underscore || _<-Args2],[],[?tuple([?atom(error),?atom(eof)])]}],
     group([ begin Input = lists:nth(InputIX,CArgs),
             ?debug(Input),
             case erl_syntax:type(Input) of
