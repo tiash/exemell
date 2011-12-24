@@ -56,7 +56,7 @@ Todos
 
 Benchmark
 ---------
-A simple parsing benchmark is included, though its results are likely meaningless for practical purposes. Enter the path(s)s to your favourite example XML in to `test/exemell_bennchmar.erl` and then `make benchmark`
+A simple parsing benchmark is included, though its results are likely meaningless for practical purposes. Enter the path(s)s to your favourite example XML in to `test/exemell_bennchmar.erl` and then `make benchmark`.
 To include `erlsom` in the benchmark uncomment the dependency in `rebar.config` and `make dependencies; make all`.
 
 
