@@ -464,6 +464,4 @@ scan_section(<<Section,"]]>",Input>>) -> {Section,Input}.
 -include("parser.hrl").
 
 
-  
-
 

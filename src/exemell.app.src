@@ -36,6 +36,6 @@
                   kernel,
                   stdlib
                  ]},
-  {mod, { exemell, []}},
+  {modules, [ exemell, exemellp ]},
   {env, []}
  ]}.
