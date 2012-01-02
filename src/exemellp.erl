@@ -2,10 +2,13 @@
 
 -include("exemell.hrl").
 
--export([escape/1,new/0,attribute/3,attribute/4,tag/2,namespace/2,namespace/3,secondary/2,secondary/3,primary/2]).
+-callback xml(_,exemell:state()) -> iolist().
+
+-export([escape/1,new/0,attribute/3,attribute/4,name/2,namespace/2,namespace/3,secondary/2,secondary/3,primary/2,xml/2]).
 
 -define(xml_nsuri,<<"http://www.w3.org/XML/1998/namespace">>).
 
+-behaviour(exemellp).
 
 -type dict(_K,_V) :: dict().
 %% And now the extern code....
@@ -61,25 +64,28 @@ namespace(DPREFIX,URI,PRINTER=?state{secondary=SECONDARY}) ->
 namespace({PREFIX,URI},PRINTER) -> namespace(PREFIX,URI,PRINTER);
 namespace(URI,PRINTER) -> namespace(none,URI,PRINTER).
 
--spec tag({binary(),nsuri()}|nsuri(),binary(),state()) -> {iolist(),iolist(),state()}.
-tag(NS,TAG,P0) ->
+-spec name({binary(),nsuri()}|nsuri(),binary(),state()) -> {iolist(),iolist(),state()}.
+name(NS,TAG,P0) ->
   case namespace(NS,P0) of
-    {PRE,IO,P1} -> {[PRE,$:,TAG],IO,P1};
-    {IO,P1} -> {TAG,IO,P1}
+    {PRE,IO,P1} -> {IO,[PRE,$:,TAG],P1};
+    {IO,P1} -> {IO,TAG,P1}
   end.
--spec tag(binary()|{nsuri(),binary()}|{{binary(),nsuri()},binary()},state()) -> {iolist(),iolist(),state()}.
-tag({NS,TAG},P0) -> tag(NS,TAG,P0);
-tag(TAG,PRINTER) -> tag(none,TAG,PRINTER).
--spec attribute({binary(),nsuri()}|nsuri(),binary(),value(),state()) -> {iolist(),state()}.
-attribute(none,NAME,VALUE,P0) ->
-  {[$ ,NAME,$=,$",escape(VALUE),$"],P0};
-attribute(NS,NAME,VALUE,P0) ->
-  {PRE,IO,P1} = secondary(NS,P0),
-  {[IO,$ ,PRE,$:,NAME,$=,$",escape(VALUE),$"],P1}.
--spec attribute(binary()|{nsuri(),binary()}|{{binary(),nsuri()},binary()},value(),state()) -> {iolist(),state()}.
-attribute({NS,NAME},VALUE,PRINTER) -> attribute(NS,NAME,VALUE,PRINTER);
-attribute(NAME,VALUE,PRINTER) -> attribute(none,NAME,VALUE,PRINTER).
+-spec name(binary()|{nsuri(),binary()}|{{binary(),nsuri()},binary()},state()) -> {iolist(),iolist(),state()}.
+name({NS,TAG},P0) -> name(NS,TAG,P0);
+name(TAG,PRINTER) -> name(none,TAG,PRINTER).
 
+sanitize({A,B}) -> {sanitize(A),sanitize(B)};
+sanitize(A) when is_atom(A) -> atom_to_binary(A,utf8);
+sanitize(A) when is_binary(A) -> A;
+sanitize(As) when is_list(As) -> [sanitize(A) || A<-As].
+
+attribute(NS,Name,Value,P0) ->
+  {Pre,IOName,P1} = name(NS,Name,P0),
+  {Pre,[$ ,IOName,$=,$",escape(Value),$"],P1}.
+attribute(Name,Value,P0) ->
+  {Pre,IOName,P1} = name(Name,P0),
+  {Pre,[$ ,IOName,$=,$",escape(Value),$"],P1}.
+  
 escape(INPUT) -> escape(INPUT,[]).
 escape([],ACCUM) -> ACCUM;
 escape([H|T],ACCUM) ->
@@ -116,4 +122,33 @@ escape(<<C/utf8,CONT/bytes>>,N,INPUT,ACCUM) ->
   if 16#1F<C, C=<16#7F -> escape(CONT,N+1,INPUT,ACCUM);
      true -> escape(CONT,0,CONT,[ACCUM,binary_part(INPUT,0,N),[<<"&#">>,integer_to_list(C),$;]])
   end.
+
+xml({raw,A},_Printer) -> A;
+xml(As,Printer) when is_list(As) -> [xml(A,Printer) || A <- As];
+xml(A,Printer) when is_tuple(A), is_atom(element(1,A)) ->
+  Mod = element(1,A),
+  case erlang:function_exported(Mod,xml,2) of
+    true -> Mod:xml(A,Printer);
+    false ->
+      case A of
+        {Tag,Attrs,Children} ->
+          {NSDecl1,TagStr,P1} = name(sanitize(Tag),Printer),
+          {NSDecl2,AttrStrs,P2} = 'xml#attributes'(Attrs,P1),
+          case Children of
+            none -> [$<,TagStr,NSDecl1,NSDecl2,AttrStrs,$/,$>];
+            _ -> [$<,TagStr,NSDecl1,NSDecl2,AttrStrs,$>,xml(Children,P2),$<,$/,TagStr,$>]
+          end
+      end
+  end;
+xml(A,_Printer) -> escape(A).
+
+'xml#attributes'(Attrs,P) ->
+  'xml#attributes'(Attrs,P,[],[]).
+'xml#attributes'([],P,AttrStrs,NSDecls) ->
+    {lists:reverse(NSDecls),lists:reverse(AttrStrs),P};
+'xml#attributes'([{Name,Value}|Attrs],P0,AttrStrs,NSDecls) ->
+    {NSDecl,AttrStr,P1} = attribute(sanitize(Name),Value,P0),
+    'xml#attributes'(Attrs,P1,[AttrStr|AttrStrs],[NSDecl|NSDecls]).
+            
+  
 
