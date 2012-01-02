@@ -47,7 +47,34 @@
 
 -include("xml.hrl").
 
+%% Rediculus abuse of parametric modules...
 -record(namespace, {uri :: nsuri(), prefix :: binary()|none, module :: module()}).
+
+%% Piggy-back on the parametrized module mechanism
+-record(exemell_blob,
+    { xml_blob :: fun((input()|none , any(), exemell:state())
+                   -> {block()|skip, exemell:state()})
+    }).
+-record(exemell_block,
+    { xml_child :: fun((child(), any(), exemell:state())
+                     -> {any(), exemell:state()})
+    , xml_end :: fun((any(),exemell:state())
+                   -> {block()|skip, exemell:state()})
+    }).
+-record(exemell_namespace,
+    { xml_block :: fun((nsuri(),tag(),[attribute()],exemell:state())
+                     -> {blob, module(), term(), exemell:state()}
+                      | {children, module(), term(), exemell:state()}
+                    )
+    , xml_attribute :: fun((nsuri(),tag(),value(),exemell:state())
+                         -> {skip,exemell:state()} | {attribute(),exemell:state()}
+                        )
+    }).
+-record(exemell_parser,
+    { xml_application :: fun((input(),exemell:state()) -> exemell:state())
+    , xml_meta :: fun((input(),exemell:state()) -> exemell:state())
+    }).
+
 
 
 
