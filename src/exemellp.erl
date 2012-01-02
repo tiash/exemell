@@ -4,7 +4,7 @@
 
 -callback xml(exemellp:state(),_) -> iolist().
 
--export([escape/1,new/0,attribute/3,attribute/4,name/2,namespace/2,namespace/3,secondary/2,secondary/3,primary/2,xml/2]).
+-export([escape/1,new/0,attribute/3,attribute/4,name/2,namespace/2,namespace/3,secondary/2,secondary/3,primary/2,xml/2,xml/1]).
 
 -define(xml_nsuri,<<"http://www.w3.org/XML/1998/namespace">>).
 
@@ -142,6 +142,8 @@ xml(Printer,A) when is_tuple(A), is_atom(element(1,A)) ->
   end;
 xml(_Printer,A) -> escape(A).
 
+xml(A) -> xml(new(),A).
+
 'xml#attributes'(Attrs,P) ->
   'xml#attributes'(Attrs,P,[],[]).
 'xml#attributes'([],P,AttrStrs,NSDecls) ->
@@ -149,6 +151,5 @@ xml(_Printer,A) -> escape(A).
 'xml#attributes'([{Name,Value}|Attrs],P0,AttrStrs,NSDecls) ->
     {NSDecl,AttrStr,P1} = attribute(sanitize(Name),Value,P0),
     'xml#attributes'(Attrs,P1,[AttrStr|AttrStrs],[NSDecl|NSDecls]).
-            
   
 
