@@ -2,7 +2,7 @@
 
 -include("exemell.hrl").
 
--callback xml(_,exemell:state()) -> iolist().
+-callback xml(exemellp:state(),_) -> iolist().
 
 -export([escape/1,new/0,attribute/3,attribute/4,name/2,namespace/2,namespace/3,secondary/2,secondary/3,primary/2,xml/2]).
 
@@ -12,36 +12,36 @@
 
 -type dict(_K,_V) :: dict().
 %% And now the extern code....
--record(?MODULE,{primary::nsuri(),secondary::dict(nsuri(),binary()),parent::state()|undefined}).
--define(state,#?MODULE).
 -export_type([state/0]).
--opaque state() :: ?state{}.
+-opaque state() :: {nsuri(),dict(nsuri(),binary())}.
 
 -spec new() -> state().
-new() -> 
-  ?state{primary=none,secondary=dict:store(?xml_nsuri,<<"xml">>,dict:new())}.
+new() -> {none,dict:store(?xml_nsuri,<<"xml">>,dict:new())}.
 
 -spec primary(nsuri(),state()) -> {binary(),state()}.
-primary(URI,PRINTER=?state{primary=URI}) -> {[],PRINTER};
-primary(URI,PRINTER) when is_binary(URI) -> {[<<" xmlns=\"">>,escape(URI),$"],PRINTER?state{primary=URI}};
-primary(URI,PRINTER) -> primary(iolist_to_binary(URI),PRINTER).
+primary(URI,Printer={URI,_}) -> {[],Printer};
+primary(URI,{_,Secondary}) when is_binary(URI) -> {[<<" xmlns=\"">>,escape(URI),$"],{URI,Secondary}};
+primary(URI,Printer) -> primary(iolist_to_binary(URI),Printer).
 
 -spec secondary(nsuri(),state()) -> {binary(),state()}.
 -spec secondary(binary(),nsuri(),state()) -> {binary(),iolist(),state()}.
-secondary(DPREFIX,URI,PRINTER=?state{secondary=SECONDARY}) when is_binary(URI) ->
-  case dict:find(URI,SECONDARY) of
-    {ok,PREFIX} -> {PREFIX,[],PRINTER};
+secondary(DPrefix,URI,Printer={Primary,Secondary}) when is_binary(URI) ->
+  case dict:find(URI,Secondary) of
+    {ok,Prefix} -> {Prefix,[],Printer};
     false ->
-      NPREFIX = uniqueValue(DPREFIX,SECONDARY),
-      {NPREFIX,[<<" xmlns:">>,NPREFIX,$=,$",escape(URI),$"],PRINTER?state{secondary=dict:store(URI,NPREFIX,SECONDARY)}}
+      NPrefix = uniqueValue(DPrefix,Secondary),
+      {NPrefix,[<<" xmlns:">>,NPrefix,$=,$",escape(URI),$"],{Primary,dict:store(URI,NPrefix,Secondary)}}
   end;
-secondary(DPREFIX,URI,PRINTER) -> secondary(DPREFIX,iolist_to_binary(URI),PRINTER).
+secondary(DPrefix,URI,Printer) -> secondary(DPrefix,iolist_to_binary(URI),Printer).
 
-secondary({PREFIX,URI},PRINTER) -> secondary(PREFIX,URI,PRINTER);
-secondary(URI,PRINTER=?state{secondary=SECONDARY}) ->
-  secondary("ns"++integer_to_list(dict:size(SECONDARY)),URI,PRINTER).
+secondary({Prefix,URI},Printer) -> secondary(Prefix,URI,Printer);
+secondary(URI,Printer={_,Secondary}) ->
+  secondary("ns"++integer_to_list(dict:size(Secondary)),URI,Printer).
+
+uniqueValue(Val,Dict) when is_tuple(Dict) ->
+  uniqueValue(Val,[V||{_,V}<-dict:to_list(Dict)]);
 uniqueValue(Val,Dict) when is_binary(Val) ->
-  case [ x || {_,V} <- dict:to_list(Dict), V==Val] of
+  case [V||V<-Dict,V==Val] of
     [] -> Val;
     _ -> uniqueValue(<<Val/bytes,"x">>,Dict)
   end;
@@ -49,30 +49,30 @@ uniqueValue(Val,Dict) -> uniqueValue(iolist_to_binary(Val),Dict).
 
 -spec namespace(binary()|none,nsuri(),state()) -> {binary(),iolist(),state()} | {iolist(),state()}.
 -spec namespace(nsuri(),state()) -> {binary(),iolist(),state()} | {iolist(),state()}.
-namespace(_PREFIX,URI,PRINTER=?state{primary=URI}) -> {[],PRINTER};
-namespace(DPREFIX,URI,PRINTER=?state{secondary=SECONDARY}) ->
-  case dict:find(URI,SECONDARY) of
-    {ok,PREFIX} -> {PREFIX,[],PRINTER};
+namespace(_Prefix,URI,Printer={URI,_}) -> {[],Printer};
+namespace(DPrefix,URI,Printer={Primary,Secondary}) ->
+  case dict:find(URI,Secondary) of
+    {ok,Prefix} -> {Prefix,[],Printer};
     false ->
-      case DPREFIX of
-        none -> {[<<" xmlns=\"">>,URI,$"],PRINTER?state{primary=URI}};
+      case DPrefix of
+        none -> {[<<" xmlns=\"">>,URI,$"],{URI,Secondary}};
         _  ->
-          NPREFIX = uniqueValue(DPREFIX,SECONDARY),
-          {NPREFIX,[<<" xmlns:">>,NPREFIX,$=,$",escape(URI),$"],PRINTER?state{secondary=dict:store(URI,NPREFIX,SECONDARY)}}
+          NPrefix = uniqueValue(DPrefix,Secondary),
+          {NPrefix,[<<" xmlns:">>,NPrefix,$=,$",escape(URI),$"],{Primary,dict:store(URI,NPrefix,Secondary)}}
       end
   end.
-namespace({PREFIX,URI},PRINTER) -> namespace(PREFIX,URI,PRINTER);
-namespace(URI,PRINTER) -> namespace(none,URI,PRINTER).
+namespace({Prefix,URI},Printer) -> namespace(Prefix,URI,Printer);
+namespace(URI,Printer) -> namespace(none,URI,Printer).
 
 -spec name({binary(),nsuri()}|nsuri(),binary(),state()) -> {iolist(),iolist(),state()}.
-name(NS,TAG,P0) ->
+name(NS,Tag,P0) ->
   case namespace(NS,P0) of
-    {PRE,IO,P1} -> {IO,[PRE,$:,TAG],P1};
-    {IO,P1} -> {IO,TAG,P1}
+    {PRE,IO,P1} -> {IO,[PRE,$:,Tag],P1};
+    {IO,P1} -> {IO,Tag,P1}
   end.
 -spec name(binary()|{nsuri(),binary()}|{{binary(),nsuri()},binary()},state()) -> {iolist(),iolist(),state()}.
-name({NS,TAG},P0) -> name(NS,TAG,P0);
-name(TAG,PRINTER) -> name(none,TAG,PRINTER).
+name({NS,Tag},P0) -> name(NS,Tag,P0);
+name(Tag,Printer) -> name(none,Tag,Printer).
 
 sanitize({A,B}) -> {sanitize(A),sanitize(B)};
 sanitize(A) when is_atom(A) -> atom_to_binary(A,utf8);
@@ -123,12 +123,12 @@ escape(<<C/utf8,CONT/bytes>>,N,INPUT,ACCUM) ->
      true -> escape(CONT,0,CONT,[ACCUM,binary_part(INPUT,0,N),[<<"&#">>,integer_to_list(C),$;]])
   end.
 
-xml({raw,A},_Printer) -> A;
-xml(As,Printer) when is_list(As) -> [xml(A,Printer) || A <- As];
-xml(A,Printer) when is_tuple(A), is_atom(element(1,A)) ->
+xml(_Printer,{raw,A}) -> A;
+xml(Printer,As) when is_list(As) -> [xml(Printer,A) || A <- As];
+xml(Printer,A) when is_tuple(A), is_atom(element(1,A)) ->
   Mod = element(1,A),
   case erlang:function_exported(Mod,xml,2) of
-    true -> Mod:xml(A,Printer);
+    true -> Mod:xml(Printer,A);
     false ->
       case A of
         {Tag,Attrs,Children} ->
@@ -140,7 +140,7 @@ xml(A,Printer) when is_tuple(A), is_atom(element(1,A)) ->
           end
       end
   end;
-xml(A,_Printer) -> escape(A).
+xml(_Printer,A) -> escape(A).
 
 'xml#attributes'(Attrs,P) ->
   'xml#attributes'(Attrs,P,[],[]).
