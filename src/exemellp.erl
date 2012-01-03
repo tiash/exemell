@@ -152,7 +152,7 @@ xml(Tag,Attrs,Children,P0) ->
   {NSDecl2,AttrStrs,P2} = 'xml#attributes'(Attrs,P1),
   case Children of
     none -> [$<,TagStr,NSDecl1,NSDecl2,AttrStrs,$/,$>];
-    _ -> [$<,TagStr,NSDecl1,NSDecl2,AttrStrs,$>,xml(Children,P2),$<,$/,TagStr,$>]
+    _ -> [$<,TagStr,NSDecl1,NSDecl2,AttrStrs,$>,xml(P2,Children),$<,$/,TagStr,$>]
   end.
 
   
