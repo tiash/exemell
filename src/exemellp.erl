@@ -1,10 +1,14 @@
 -module(exemellp).
 
 -include("exemell.hrl").
+-ifndef(DEBUG).
+-define(DEBUG,true).
+-endif.
+-include("debug.hrl").
 
 -callback xml(exemellp:state(),_) -> iolist().
 
--export([escape/1,new/0,attribute/3,attribute/4,name/2,name_/2,namespace/2,namespace/3,secondary/2,secondary/3,primary/2,xml/2,xml/1,xml/4]).
+-export([escape/1,new/0,attribute/3,attribute/4,name/2,name_/2,namespace/2,secondary/2,primary/2,xml/2,xml/1,xml/4]).
 
 -define(xml_nsuri,<<"http://www.w3.org/XML/1998/namespace">>).
 
@@ -18,59 +22,49 @@
 -spec new() -> state().
 new() -> {none,dict:store(?xml_nsuri,<<"xml">>,dict:new())}.
 
--spec primary(nsuri()|namespace(),state()) -> {iolist(),state()}.
-primary(URI,Printer={URI,_}) -> {[],Printer};
-primary(URI,{_,Secondary}) when is_binary(URI) -> {[<<" xmlns=\"">>,escape(URI),$"],{URI,Secondary}};
-primary(URI,Printer) -> primary(iolist_to_binary(URI),Printer).
+-spec primary(none|nsuri()|namespace(),state()) -> {iolist(),state()}.
+primary(NS,Printer={NS,_}) -> {[],Printer};
+primary(URI,Printer) when is_list(URI) -> primary(iolist_to_binary(URI),Printer);
+primary(URI,Printer) when is_binary(URI); URI=:=none -> primary(exemell_namespace:new(URI),Printer);
+primary(NS,{_,Secondary}) -> {[<<" xmlns=\"">>,escape(NS:xmlns()),$"],{NS,Secondary}}.
 
--spec secondary(binary(),nsuri(),state()) -> {binary(),iolist(),state()}.
-secondary(DPrefix,URI,Printer={Primary,Secondary}) when is_binary(URI) ->
-  case dict:find(URI,Secondary) of
+-spec secondary(none|nsuri()|namespace(),state()) -> {binary(),iolist(),state()}.
+secondary(URI,Printer) when is_list(URI) -> secondary(iolist_to_binary(URI),Printer);
+secondary(URI,Printer) when is_binary(URI); URI=:=none -> secondary(exemell_namespace:new(URI),Printer);
+secondary(NS,Printer={Primary,Secondary}) ->
+  case dict:find(NS,Secondary) of
     {ok,Prefix} -> {Prefix,[],Printer};
     error ->
-      NPrefix = uniqueValue(DPrefix,Secondary),
-      {NPrefix,[<<" xmlns:">>,NPrefix,$=,$",escape(URI),$"],{Primary,dict:store(URI,NPrefix,Secondary)}}
-  end;
-secondary(DPrefix,URI,Printer) -> secondary(DPrefix,iolist_to_binary(URI),Printer).
+      case NS:xml_prefix() of
+        none -> Prefix = iolist_to_binary(["ns",integer_to_list(dict:size(Secondary)+1)]);
+        Prefix -> ok
+      end,
+      {Prefix,[<<" xmlns:">>,Prefix,$=,$",escape(NS:xmlns()),$"],{Primary,dict:store(NS,Prefix,Secondary)}}
+  end.
 
--spec secondary(nsuri()|{binary(),nsuri()},state()) -> {binary(),iolist(),state()}.
-secondary({Prefix,URI},{Primary,Secondary}) -> secondary(Prefix,URI,{Primary,Secondary});
-secondary(URI,{Primary,Secondary}) ->
-  secondary(iolist_to_binary("ns"++integer_to_list(dict:size(Secondary))),URI,{Primary,Secondary}).
-
-uniqueValue(Val,Dict) ->
-  uniqueValue_(Val,[V||{_,V}<-dict:to_list(Dict)]).
-uniqueValue_(Val,Dict) when is_binary(Val) ->
-  case [V||V<-Dict,V==Val] of
-    [] -> Val;
-    _ -> uniqueValue_(<<Val/bytes,"x">>,Dict)
-  end;
-uniqueValue_(Val,Dict) -> uniqueValue_(iolist_to_binary(Val),Dict).
-
--spec namespace(binary()|none,nsuri(),state()) -> {binary(),iolist(),state()} | {iolist(),state()}.
--spec namespace(nsuri(),state()) -> {binary(),iolist(),state()} | {iolist(),state()}.
-namespace(_Prefix,URI,Printer={URI,_}) -> {[],Printer};
-namespace(DPrefix,URI,Printer={Primary,Secondary}) ->
-  case dict:find(URI,Secondary) of
+-spec namespace(none|nsuri()|namespace(),state()) -> {binary(),iolist(),state()} | {iolist(),state()}.
+namespace(NS,Printer={NS,_}) -> {[],Printer};
+namespace(URI,Printer) when is_list(URI) -> namespace(iolist_to_binary(URI),Printer);
+namespace(URI,Printer) when is_binary(URI); URI=:=none -> namespace(exemell_namespace:new(URI),Printer);
+namespace(NS,Printer={Primary,Secondary}) ->
+  case dict:find(NS,Secondary) of
     {ok,Prefix} -> {Prefix,[],Printer};
     error ->
-      case DPrefix of
-        none -> {[<<" xmlns=\"">>,URI,$"],{URI,Secondary}};
-        _  ->
-          NPrefix = uniqueValue(DPrefix,Secondary),
-          {NPrefix,[<<" xmlns:">>,NPrefix,$=,$",escape(URI),$"],{Primary,dict:store(URI,NPrefix,Secondary)}}
+      case NS:xml_prefix() of
+        none -> {[<<" xmlns=\"">>,escape(NS:xmlns()),$"],{NS,Secondary}};
+        Prefix -> {[<<" xmlns:">>,Prefix,$=,$",escape(NS:xmlns()),$"],{Primary,dict:store(NS,Prefix,Secondary)}}
       end
   end.
-namespace({Prefix,URI},Printer) -> namespace(Prefix,URI,Printer);
-namespace(URI,Printer) -> namespace(none,URI,Printer).
 
 -spec name({binary(),nsuri()}|nsuri(),binary(),state()) -> {iolist(),iolist(),state()}.
 -spec name_({binary(),nsuri()}|nsuri(),binary(),state()) -> {iolist(),iolist(),state()}.
+name(NS,Tag,P0) when is_atom(Tag) -> name(NS,atom_to_binary(Tag,utf8),P0);
 name(NS,Tag,P0) ->
   case namespace(NS,P0) of
     {PRE,IO,P1} -> {IO,[PRE,$:,Tag],P1};
     {IO,P1} -> {IO,Tag,P1}
   end.
+name_(NS,Tag,P0) when is_atom(Tag) -> name_(NS,atom_to_binary(Tag,utf8),P0);
 name_(none,TAG,P0) ->
   {[],TAG,P0};
 name_(NS,Tag,P0) ->
@@ -84,16 +78,11 @@ name(Tag,Printer) -> name(none,Tag,Printer).
 name_({NS,Tag},P0) -> name_(NS,Tag,P0);
 name_(Tag,Printer) -> name_(none,Tag,Printer).
 
-sanitize({A,B}) -> {sanitize(A),sanitize(B)};
-sanitize(A) when is_atom(A) -> atom_to_binary(A,utf8);
-sanitize(A) when is_binary(A) -> A;
-sanitize(As) when is_list(As) -> [sanitize(A) || A<-As].
-
 attribute(NS,Name,Value,P0) ->
-  {Pre,IOName,P1} = name(NS,Name,P0),
+  {Pre,IOName,P1} = name_(NS,Name,P0),
   {Pre,[$ ,IOName,$=,$",escape(Value),$"],P1}.
 attribute(Name,Value,P0) ->
-  {Pre,IOName,P1} = name(Name,P0),
+  {Pre,IOName,P1} = name_(Name,P0),
   {Pre,[$ ,IOName,$=,$",escape(Value),$"],P1}.
   
 escape(INPUT) -> escape(INPUT,[]).
@@ -113,7 +102,7 @@ escape(C,ACCUM) when is_integer(C) ->
   if 16#1F<C, C=<16#7F -> [ACCUM,C];
      true -> [ACCUM,[$&,$#,integer_to_list(C),$;]]
   end.
-escape(<<>>,_,INPUT,ACCUM) -> [INPUT,ACCUM];
+escape(<<>>,_,INPUT,ACCUM) -> [ACCUM,INPUT];
 escape(<<$"/utf8,CONT/bytes>>,N,INPUT,ACCUM) ->
   escape(CONT,0,CONT,[ACCUM,binary_part(INPUT,0,N),<<"&quot;">>]);
 escape(<<$&/utf8,CONT/bytes>>,N,INPUT,ACCUM) ->
@@ -152,7 +141,10 @@ xml(_Printer,A) -> escape(A).
 xml(A) -> xml(new(),A).
 
 xml(Tag,Attrs,Children,P0) ->
-  {NSDecl1,TagStr,P1} = name(sanitize(Tag),P0),
+  ?debug(Tag),
+  ?debug(Attrs),
+  ?debug(Children),
+  {NSDecl1,TagStr,P1} = name(Tag,P0),
   {NSDecl2,AttrStrs,P2} = 'xml#attributes'(Attrs,P1),
   case Children of
     none -> [$<,TagStr,NSDecl1,NSDecl2,AttrStrs,$/,$>];
@@ -166,7 +158,7 @@ xml(Tag,Attrs,Children,P0) ->
 'xml#attributes'([],P,AttrStrs,NSDecls) ->
     {lists:reverse(NSDecls),lists:reverse(AttrStrs),P};
 'xml#attributes'([{Name,Value}|Attrs],P0,AttrStrs,NSDecls) ->
-    {NSDecl,AttrStr,P1} = attribute(sanitize(Name),Value,P0),
+    {NSDecl,AttrStr,P1} = attribute(Name,Value,P0),
     'xml#attributes'(Attrs,P1,[AttrStr|AttrStrs],[NSDecl|NSDecls]).
   
 

@@ -259,19 +259,13 @@ addAttribute(Name,Value,ParserState=?state{local=(LocalState=#local_attrs{attrib
 xmlns(Name,Value,ParserState) when is_atom(Name) ->
   {BName,ParserState2} = intern(atom_to_binary(Name,utf8),ParserState),
   xmlns(BName,Value,ParserState2);
-xmlns(Name,none,ParserState) ->
-  {Namespace,ParserState2} = namespace(none,ParserState),
-  secondaryNamespace(Name,Namespace,ParserState2);
-xmlns(Name,Value,ParserState) ->
-  {Namespace,ParserState2} = namespace(iolist_to_binary(Value),ParserState),
+xmlns(Name,NS,ParserState) ->
+  {Namespace,ParserState2} = namespace(if is_atom(NS); is_tuple(NS) -> NS; true -> iolist_to_binary(NS) end,ParserState),
   secondaryNamespace(Name,Namespace,ParserState2).
 -spec xmlns(value(),Parser) -> Parser
         when Parser :: exemell:state().
-xmlns(none,ParserState) ->
-  {Namespace,ParserState2} = namespace(none,ParserState),
-  primaryNamespace(Namespace,ParserState2);
-xmlns(Value,ParserState) ->
-  {Namespace,ParserState2} = namespace(iolist_to_binary(Value),ParserState),
+xmlns(NS,ParserState) ->
+  {Namespace,ParserState2} = namespace(if is_atom(NS); is_tuple(NS) -> NS; true -> iolist_to_binary(NS) end,ParserState),
   primaryNamespace(Namespace,ParserState2).
 
 -spec nsify(input(),Parser) -> {nstag(),Parser}
@@ -290,6 +284,8 @@ nsify(Input_,State1) ->
       {{Prefix,Name},State3}
   end.
 
+event_text(<<>>,{ParserState,Input}) ->
+  {ParserState,Input};
 event_text(Text,{ParserState,Input}) ->
   {addChild(Text,ParserState),Input}.
 event_entity(Name,{ParserState1,Input}) ->
