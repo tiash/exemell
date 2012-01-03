@@ -134,6 +134,10 @@ escape(<<C/utf8,CONT/bytes>>,N,INPUT,ACCUM) ->
   end.
 
 xml(_Printer,{raw,A}) -> A;
+xml(_Printer,{'CDATA',A}) -> [<<"<![CDATA[">>,A,<<"]]>">>];
+xml(_Printer,{comment,A}) -> [<<"<!--">>,A,<<"-->">>];
+xml(_Printer,#parse_instruction{value=A}) -> [<<"<%">>,A,<<">">>];
+xml(_Printer,#meta_instruction{value=A}) -> [<<"<!">>,A,<<">">>];
 xml(Printer,As) when is_list(As) -> [xml(Printer,A) || A <- As];
 xml(Printer,A) when is_tuple(A), is_atom(element(1,A)) ->
   Mod = element(1,A),
