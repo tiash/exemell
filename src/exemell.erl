@@ -146,7 +146,7 @@ namespace(URI,ParserState=?state{global=#global{namespaces=Namespaces}}) when is
       Namespace = exemell_namespace:new(URI),
       {Namespace,namespace(URI,Namespace,ParserState)}
   end;
-namespace(Namespace,ParserState) -> namespace(Namespace:xmlns(),Namespace,ParserState).
+namespace(Namespace,ParserState) -> {Namespace,namespace(Namespace:xmlns(),Namespace,ParserState)}.
 namespace(URI,Namespace,ParserState=?state{global=GlobalState=#global{namespaces=Namespaces}}) ->
       ParserState?state{global=GlobalState#global{namespaces=dict:store(URI,Namespace,Namespaces)}}.
 
