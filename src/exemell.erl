@@ -30,9 +30,8 @@
 -module(exemell).
 
 -export([new/0,new/1,new/2]).
--export([xml/1,xml/2,parser/2]).
+-export([xml/1,xml/2]).
 -export([userstate/1,userstate/2]).
--export([newNamespace/2,newNamespace/3]).
 -export([namespace/2,namespace/3]).
 -export([xmlns/2,xmlns/3]).
 -export([addChild/2]).
@@ -50,7 +49,7 @@
 -record(global,
   { entities = dict:new() :: dict(binary() | {'%',binary()},term())
   , intern = dict:new() :: dict(binary(),binary())
-  , namespaces = dict:new() :: dict(nsuri(),#namespace{})
+  , namespaces = dict:new() :: dict(nsuri(),namespace())
   , module = exemell_parser :: module()
   , sections = 0:: non_neg_integer()
   , userstate = undefined :: any()
@@ -62,16 +61,16 @@
   { tag :: binary()
   , module :: module()
   , state :: any()
-  , primary_ns :: #namespace{}
-  , secondary_ns :: dict(binary(), #namespace{})
+  , primary_ns :: namespace()
+  , secondary_ns :: dict(binary(), namespace())
   , parent :: #local_block{}
   }).
       
 -record(local_attrs,
   { tag :: binary()
   , attributes :: [{nstag(), value()}]
-  , primary_ns :: #namespace{}
-  , secondary_ns :: dict(binary(), #namespace{})
+  , primary_ns :: namespace()
+  , secondary_ns :: dict(binary(), namespace())
   , parent :: #local_block{}
   }).
 
@@ -90,16 +89,13 @@
 -export_type([state/0]).
 -opaque state() :: ?state{}. % ?state{local::#local_block{}}.
 
--define(xml_nsuri,<<"http://www.w3.org/XML/1998/namespace">>).
+
 
 -spec xml(input()) -> {ok,[child()],exemell:state()} | {error,_}.
-xml(Input) -> parser(Input,new()).
--spec xml(input(),any()) -> {ok,[child()],exemell:state()} | {error,_}.
-xml(Input,User) -> parser(Input,new(User)).
-
--spec parser(input(),Parser) -> {ok,[child()],Parser} | {error,_} when Parser :: exemell:state().
-parser(Input,State0=?state{}) ->
-  case run_parser(Input,newRootState(State0)) of
+xml(Input) -> xml(Input,new()).
+-spec xml(input(),Parser) -> {ok,[child()],Parser} | {error,_} when Parser :: exemell:state().
+xml(Input,State0=?state{}) ->
+  case run_parser(Input,reset(State0)) of
     {ok,State1=?state{local=#local_block{tag=undefined,state={undefined,[],Res}}}} ->
       {ok,lists:reverse(Res),State1?state{local=undefined}};
     {ok,State1} -> {error,State1};
@@ -112,25 +108,26 @@ new() -> new(undefined).
 new(User) -> new(User,exemell_parser).
 -spec new(term(), module()) -> exemell:state().
 new(User,Module) ->
-  GlobalState1 = ?state{global=#global{entities=dict:new(),intern=dict:new(),namespaces=dict:new(),module=Module,userstate=User}},
+  code:ensure_loaded(exemell_namespace_xml),
+  code:ensure_loaded(exemell_namespace),
+  GlobalState1 = ?state{global=#global{entities=dict:new(),intern=dict:new(),namespaces=exemell_ns_reg:get(),module=Module,userstate=User}},
   GlobalState2 = entity(<<"nbsp">>,<<" ">>,GlobalState1),
   GlobalState3 = entity(<<"lt">>,<<"<">>,GlobalState2),
   GlobalState4 = entity(<<"gt">>,<<">">>,GlobalState3),
   GlobalState5 = entity(<<"amp">>,<<"&">>,GlobalState4),
   GlobalState6 = entity(<<"quot">>,<<"\"">>,GlobalState5),
-  GlobalState7 = namespace(?xml_nsuri,newNamespace(<<"xml">>,?xml_nsuri),GlobalState6),
-  GlobalState8 = namespace(none,newNamespace(none,none),GlobalState7),
+  {_,GlobalState7} = namespace(exemell_namespace_xml,GlobalState6),
+  {_,GlobalState8} = namespace(exemell_namespace,GlobalState7),
   GlobalState8.
 
-newRootState(Parser0) ->
+reset(Parser0) ->
   Parser1 = Parser0?state{local=#local_block{
       tag=undefined,
       module=exemell_block,
       state={undefined,[],[]},
       secondary_ns = dict:new()
     }},
-  xmlns(<<"xml">>,?xml_nsuri,xmlns(none,Parser1)).
-
+  xmlns(<<"xml">>,exemell_namespace_xml,xmlns(exemell_namespace,Parser1)).
 
 -spec userstate(Parser) -> term()
         when Parser :: exemell:state().
@@ -140,29 +137,22 @@ userstate(?state{global=#global{userstate=UserState}}) -> UserState.
 userstate(UserState,ParserState=?state{global=GlobalState}) ->
   ParserState?state{global=GlobalState#global{userstate=UserState}}.
 
--spec namespace(nsuri(),Parser) -> {#namespace{},Parser} when Parser :: exemell:state().
--spec namespace(nsuri(),#namespace{},Parser) -> Parser when Parser :: exemell:state().
-namespace(URI,ParserState=?state{global=#global{namespaces=Namespaces}}) ->
+-spec namespace(nsuri() | namespace(),Parser) -> {namespace(),Parser} when Parser :: exemell:state().
+-spec namespace(nsuri(), namespace(),Parser) -> Parser when Parser :: exemell:state().
+namespace(URI,ParserState=?state{global=#global{namespaces=Namespaces}}) when is_binary(URI); URI=:=none ->
   case dict:find(URI,Namespaces) of
     {ok,Namespace} -> {Namespace,ParserState};
     error ->
-      {Namespace0,ParserState1} = namespace(none,ParserState),
-      Namespace = Namespace0#namespace{uri=URI},
-      {Namespace,namespace(URI,Namespace,ParserState1)}
-  end.
+      Namespace = exemell_namespace:new(URI),
+      {Namespace,namespace(URI,Namespace,ParserState)}
+  end;
+namespace(Namespace,ParserState) -> namespace(Namespace:xmlns(),Namespace,ParserState).
 namespace(URI,Namespace,ParserState=?state{global=GlobalState=#global{namespaces=Namespaces}}) ->
       ParserState?state{global=GlobalState#global{namespaces=dict:store(URI,Namespace,Namespaces)}}.
 
--spec newNamespace(binary()|none,nsuri()) -> #namespace{}.
--spec newNamespace(binary()|none,nsuri(), module()) -> #namespace{}.
-newNamespace(Prefix,URI) ->
-  newNamespace(Prefix,URI,exemell_namespace).
-newNamespace(Prefix,URI,Module) ->
-  #namespace{uri=URI,prefix=Prefix,module=Module}.
-
--spec primaryNamespace(Parser) -> #namespace{}
+-spec primaryNamespace(Parser) -> namespace()
         when Parser :: exemell:state().
--spec primaryNamespace(#namespace{},Parser) -> Parser
+-spec primaryNamespace(namespace(),Parser) -> Parser
         when Parser :: exemell:state().
 primaryNamespace(?state{local=#local_attrs{primary_ns=Namespace}}) -> Namespace;
 primaryNamespace(?state{local=#local_block{primary_ns=Namespace}}) -> Namespace.
@@ -171,13 +161,13 @@ primaryNamespace(Namespace,ParserState=?state{local=LocalState=#local_attrs{}}) 
 primaryNamespace(Namespace,ParserState=?state{local=LocalState=#local_block{}}) ->
   ParserState?state{local=LocalState#local_block{primary_ns=Namespace}}.
 
--spec secondaryNamespace(binary(),Parser) -> #namespace{}
+-spec secondaryNamespace(binary(),Parser) -> namespace()
         when Parser :: exemell:state().
--spec secondaryNamespace(binary(),#namespace{},Parser) -> Parser
+-spec secondaryNamespace(binary(),namespace(),Parser) -> Parser
         when Parser :: exemell:state().
--spec secondaryNamespaces(Parser) -> dict(binary(),#namespace{})
+-spec secondaryNamespaces(Parser) -> dict(binary(),namespace())
         when Parser :: exemell:state().
--spec secondaryNamespaces(dict(binary(),#namespace{}),Parser) -> Parser
+-spec secondaryNamespaces(dict(binary(),namespace()),Parser) -> Parser
         when Parser :: exemell:state().
 secondaryNamespace(Prefix,ParserState) -> dict:fetch(Prefix,secondaryNamespaces(ParserState)).
 secondaryNamespace(Prefix,Namespace,ParserState) ->
@@ -340,12 +330,13 @@ process_attrs([],ParserState,Accum) -> {lists:reverse(Accum),ParserState};
 process_attrs([{Name,Value}|Attrs],ParserState1,Accum) ->
   case Name of
     {Prefix,PName} ->
-      #namespace{uri=Uri,module=Module} = secondaryNamespace(Prefix,ParserState1);
+      Namespace = secondaryNamespace(Prefix,ParserState1),
+      Uri = Namespace:xmlns();
     PName ->  
-      Uri = none,
-      #namespace{module=Module} = primaryNamespace(ParserState1)
+      Namespace = primaryNamespace(ParserState1),
+      Uri = none
   end,
-  case Module:xml_attribute(Uri,PName,Value,ParserState1) of
+  case Namespace:xml_attribute(Uri,PName,Value,ParserState1) of
     {skip,ParserState2} -> process_attrs(Attrs,ParserState2,Accum);
     {Attr,ParserState2} -> process_attrs(Attrs,ParserState2,[Attr|Accum])
   end.
@@ -360,11 +351,12 @@ event_close_tag_begin_block({ParserState1,Input}) ->
   % io:format("tag/enter[1].attrs ~p~n",[Attrs]),
   case Tag of
     {Prefix,PTag} ->
-      #namespace{uri=Uri,module=Module} = secondaryNamespace(Prefix,ParserState2);
+      Namespace = secondaryNamespace(Prefix,ParserState2);
     PTag -> 
-      #namespace{uri=Uri,module=Module} = primaryNamespace(ParserState2)
+      Namespace = primaryNamespace(ParserState2)
   end,
-  case Module:xml_block(Uri,PTag,Attrs,ParserState2) of
+  Uri = Namespace:xmlns(),
+  case Namespace:xml_block(Uri,PTag,Attrs,ParserState2) of
     {skip,ParserState3} -> erlang:exit(todo), {ParserState3,Input};
     {blob,_BModule,_State,_ParserState3=?state{local=_Parent}} ->
       erlang:exit(todo);
@@ -381,12 +373,13 @@ event_close_tag({ParserState1,Input}) ->
   % io:format("close/tag[2]"),
   case Tag of
     {Prefix,PTag} ->
-      #namespace{uri=Uri,module=Module} = secondaryNamespace(Prefix,ParserState2);
+      Namespace = secondaryNamespace(Prefix,ParserState2);
     PTag -> 
-      #namespace{uri=Uri,module=Module} = primaryNamespace(ParserState2)
+      Namespace = primaryNamespace(ParserState2)
   end,
+  Uri = Namespace:xmlns(),
   % io:format("close/tag[3]"),
-  case Module:xml_block(Uri,PTag,Attrs,ParserState2) of
+  case Namespace:xml_block(Uri,PTag,Attrs,ParserState2) of
     {skip,ParserState3=?state{local=#local_attrs{parent=Parent}}} -> {ParserState3?state{local=Parent},Input};
     {blob,BModule,State,ParserState3} ->
       % io:format("close/tag[4]"),

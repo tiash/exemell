@@ -13,39 +13,39 @@
 -type dict(_K,_V) :: dict().
 %% And now the extern code....
 -export_type([state/0]).
--opaque state() :: {nsuri(),dict(nsuri(),binary())}.
+-opaque state() :: {namespace(),dict(nsuri(),namespace())}.
 
 -spec new() -> state().
 new() -> {none,dict:store(?xml_nsuri,<<"xml">>,dict:new())}.
 
--spec primary(nsuri(),state()) -> {binary(),state()}.
+-spec primary(nsuri()|namespace(),state()) -> {iolist(),state()}.
 primary(URI,Printer={URI,_}) -> {[],Printer};
 primary(URI,{_,Secondary}) when is_binary(URI) -> {[<<" xmlns=\"">>,escape(URI),$"],{URI,Secondary}};
 primary(URI,Printer) -> primary(iolist_to_binary(URI),Printer).
 
--spec secondary(nsuri(),state()) -> {binary(),state()} | {binary(),iolist(),state()}.
 -spec secondary(binary(),nsuri(),state()) -> {binary(),iolist(),state()}.
 secondary(DPrefix,URI,Printer={Primary,Secondary}) when is_binary(URI) ->
   case dict:find(URI,Secondary) of
     {ok,Prefix} -> {Prefix,[],Printer};
-    false ->
+    error ->
       NPrefix = uniqueValue(DPrefix,Secondary),
       {NPrefix,[<<" xmlns:">>,NPrefix,$=,$",escape(URI),$"],{Primary,dict:store(URI,NPrefix,Secondary)}}
   end;
 secondary(DPrefix,URI,Printer) -> secondary(DPrefix,iolist_to_binary(URI),Printer).
 
-secondary({Prefix,URI},Printer) -> secondary(Prefix,URI,Printer);
-secondary(URI,Printer={_,Secondary}) ->
-  secondary("ns"++integer_to_list(dict:size(Secondary)),URI,Printer).
+-spec secondary(nsuri()|{binary(),nsuri()},state()) -> {binary(),iolist(),state()}.
+secondary({Prefix,URI},{Primary,Secondary}) -> secondary(Prefix,URI,{Primary,Secondary});
+secondary(URI,{Primary,Secondary}) ->
+  secondary(iolist_to_binary("ns"++integer_to_list(dict:size(Secondary))),URI,{Primary,Secondary}).
 
-uniqueValue(Val,Dict) when is_tuple(Dict) ->
-  uniqueValue(Val,[V||{_,V}<-dict:to_list(Dict)]);
-uniqueValue(Val,Dict) when is_binary(Val) ->
+uniqueValue(Val,Dict) ->
+  uniqueValue_(Val,[V||{_,V}<-dict:to_list(Dict)]).
+uniqueValue_(Val,Dict) when is_binary(Val) ->
   case [V||V<-Dict,V==Val] of
     [] -> Val;
-    _ -> uniqueValue(<<Val/bytes,"x">>,Dict)
+    _ -> uniqueValue_(<<Val/bytes,"x">>,Dict)
   end;
-uniqueValue(Val,Dict) -> uniqueValue(iolist_to_binary(Val),Dict).
+uniqueValue_(Val,Dict) -> uniqueValue_(iolist_to_binary(Val),Dict).
 
 -spec namespace(binary()|none,nsuri(),state()) -> {binary(),iolist(),state()} | {iolist(),state()}.
 -spec namespace(nsuri(),state()) -> {binary(),iolist(),state()} | {iolist(),state()}.
@@ -53,7 +53,7 @@ namespace(_Prefix,URI,Printer={URI,_}) -> {[],Printer};
 namespace(DPrefix,URI,Printer={Primary,Secondary}) ->
   case dict:find(URI,Secondary) of
     {ok,Prefix} -> {Prefix,[],Printer};
-    false ->
+    error ->
       case DPrefix of
         none -> {[<<" xmlns=\"">>,URI,$"],{URI,Secondary}};
         _  ->

@@ -33,10 +33,6 @@
 
 
 %% How to tell dialyzer that these should implement the appropriate behaviours.
--type exemell() :: module().
--type exemell_block() :: module().
--type exemell_namespace() :: module().
--type exemell_blob() :: module().
 
 -record(parse_instruction,{value::binary()}).
 -record(meta_instruction,{value::binary()}).
@@ -47,33 +43,40 @@
 
 -include("xml.hrl").
 
-%% Rediculus abuse of parametric modules...
--record(namespace, {uri :: nsuri(), prefix :: binary()|none, module :: module()}).
+-type callback(_Behaviour) :: module().
 
+%% Rediculus abuse of parametric modules...
 %% Piggy-back on the parametrized module mechanism
 -record(exemell_blob,
     { xml_blob :: fun((input()|none , any(), exemell:state())
                    -> {block()|skip, exemell:state()})
     }).
+-type exemell_blob() :: #exemell_blob{} | callback(exemell_blob).
 -record(exemell_block,
     { xml_child :: fun((child(), any(), exemell:state())
                      -> {any(), exemell:state()})
     , xml_end :: fun((any(),exemell:state())
                    -> {block()|skip, exemell:state()})
     }).
+-type exemell_block() :: #exemell_block{} | callback(exemell_block).
 -record(exemell_namespace,
-    { xml_block :: fun((nsuri(),tag(),[attribute()],exemell:state())
-                     -> {blob, module(), term(), exemell:state()}
-                      | {children, module(), term(), exemell:state()}
+    { xmlns :: nsuri()
+    , xml_prefix :: binary() | none
+    , xml_block :: fun((nsuri(),tag(),[attribute()],exemell:state())
+                     -> {blob, exemell_blob(), term(), exemell:state()}
+                      | {children, exemell_block(), term(), exemell:state()}
                     )
     , xml_attribute :: fun((nsuri(),tag(),value(),exemell:state())
                          -> {skip,exemell:state()} | {attribute(),exemell:state()}
                         )
     }).
+-type namespace() :: #exemell_namespace{} | callback(exemell_namespace).
 -record(exemell_parser,
     { xml_application :: fun((input(),exemell:state()) -> exemell:state())
     , xml_meta :: fun((input(),exemell:state()) -> exemell:state())
     }).
+-type exemell_parser() :: #exemell_parser{} | callback(exemell_parser).
+
 
 
 
