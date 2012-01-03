@@ -4,7 +4,7 @@
 
 -callback xml(exemellp:state(),_) -> iolist().
 
--export([escape/1,new/0,attribute/3,attribute/4,name/2,namespace/2,namespace/3,secondary/2,secondary/3,primary/2,xml/2,xml/1]).
+-export([escape/1,new/0,attribute/3,attribute/4,name/2,name_/2,namespace/2,namespace/3,secondary/2,secondary/3,primary/2,xml/2,xml/1]).
 
 -define(xml_nsuri,<<"http://www.w3.org/XML/1998/namespace">>).
 
@@ -23,7 +23,7 @@ primary(URI,Printer={URI,_}) -> {[],Printer};
 primary(URI,{_,Secondary}) when is_binary(URI) -> {[<<" xmlns=\"">>,escape(URI),$"],{URI,Secondary}};
 primary(URI,Printer) -> primary(iolist_to_binary(URI),Printer).
 
--spec secondary(nsuri(),state()) -> {binary(),state()}.
+-spec secondary(nsuri(),state()) -> {binary(),state()} | {binary(),iolist(),state()}.
 -spec secondary(binary(),nsuri(),state()) -> {binary(),iolist(),state()}.
 secondary(DPrefix,URI,Printer={Primary,Secondary}) when is_binary(URI) ->
   case dict:find(URI,Secondary) of
@@ -65,14 +65,24 @@ namespace({Prefix,URI},Printer) -> namespace(Prefix,URI,Printer);
 namespace(URI,Printer) -> namespace(none,URI,Printer).
 
 -spec name({binary(),nsuri()}|nsuri(),binary(),state()) -> {iolist(),iolist(),state()}.
+-spec name_({binary(),nsuri()}|nsuri(),binary(),state()) -> {iolist(),iolist(),state()}.
 name(NS,Tag,P0) ->
   case namespace(NS,P0) of
     {PRE,IO,P1} -> {IO,[PRE,$:,Tag],P1};
     {IO,P1} -> {IO,Tag,P1}
   end.
+name_(none,TAG,P0) ->
+  {[],TAG,P0};
+name_(NS,Tag,P0) ->
+  case secondary(NS,P0) of
+    {PRE,IO,P1} -> {IO,[PRE,$:,Tag],P1}
+    % {IO,P1} -> {IO,Tag,P1}
+  end.
 -spec name(binary()|{nsuri(),binary()}|{{binary(),nsuri()},binary()},state()) -> {iolist(),iolist(),state()}.
 name({NS,Tag},P0) -> name(NS,Tag,P0);
 name(Tag,Printer) -> name(none,Tag,Printer).
+name_({NS,Tag},P0) -> name_(NS,Tag,P0);
+name_(Tag,Printer) -> name_(none,Tag,Printer).
 
 sanitize({A,B}) -> {sanitize(A),sanitize(B)};
 sanitize(A) when is_atom(A) -> atom_to_binary(A,utf8);
