@@ -29,6 +29,7 @@
 
 -module(exemell).
 
+-export([new/0,new/1,new/2]).
 -export([xml/1,xml/2,parser/2]).
 -export([userstate/1,userstate/2]).
 -export([newNamespace/2,newNamespace/3]).
@@ -92,9 +93,9 @@
 -define(xml_nsuri,<<"http://www.w3.org/XML/1998/namespace">>).
 
 -spec xml(input()) -> {ok,[child()],exemell:state()} | {error,_}.
-xml(Input) -> parser(Input,newGlobalState()).
+xml(Input) -> parser(Input,new()).
 -spec xml(input(),any()) -> {ok,[child()],exemell:state()} | {error,_}.
-xml(Input,User) -> parser(Input,newGlobalState(User)).
+xml(Input,User) -> parser(Input,new(User)).
 
 -spec parser(input(),Parser) -> {ok,[child()],Parser} | {error,_} when Parser :: exemell:state().
 parser(Input,State0=?state{}) ->
@@ -105,12 +106,12 @@ parser(Input,State0=?state{}) ->
     Error -> Error
   end.
 
--spec newGlobalState() -> exemell:state().
-newGlobalState() -> newGlobalState(undefined).
--spec newGlobalState(term()) -> exemell:state().
-newGlobalState(User) -> newGlobalState(User,exemell_parser).
--spec newGlobalState(term(), module()) -> exemell:state().
-newGlobalState(User,Module) ->
+-spec new() -> exemell:state().
+new() -> new(undefined).
+-spec new(term()) -> exemell:state().
+new(User) -> new(User,exemell_parser).
+-spec new(term(), module()) -> exemell:state().
+new(User,Module) ->
   GlobalState1 = ?state{global=#global{entities=dict:new(),intern=dict:new(),namespaces=dict:new(),module=Module,userstate=User}},
   GlobalState2 = entity(<<"nbsp">>,<<" ">>,GlobalState1),
   GlobalState3 = entity(<<"lt">>,<<"<">>,GlobalState2),
