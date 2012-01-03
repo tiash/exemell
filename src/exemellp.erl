@@ -4,7 +4,7 @@
 
 -callback xml(exemellp:state(),_) -> iolist().
 
--export([escape/1,new/0,attribute/3,attribute/4,name/2,name_/2,namespace/2,namespace/3,secondary/2,secondary/3,primary/2,xml/2,xml/1]).
+-export([escape/1,new/0,attribute/3,attribute/4,name/2,name_/2,namespace/2,namespace/3,secondary/2,secondary/3,primary/2,xml/2,xml/1,xml/4]).
 
 -define(xml_nsuri,<<"http://www.w3.org/XML/1998/namespace">>).
 
@@ -140,19 +140,22 @@ xml(Printer,A) when is_tuple(A), is_atom(element(1,A)) ->
   case erlang:function_exported(Mod,xml,2) of
     true -> Mod:xml(Printer,A);
     false ->
-      case A of
-        {Tag,Attrs,Children} ->
-          {NSDecl1,TagStr,P1} = name(sanitize(Tag),Printer),
-          {NSDecl2,AttrStrs,P2} = 'xml#attributes'(Attrs,P1),
-          case Children of
-            none -> [$<,TagStr,NSDecl1,NSDecl2,AttrStrs,$/,$>];
-            _ -> [$<,TagStr,NSDecl1,NSDecl2,AttrStrs,$>,xml(Children,P2),$<,$/,TagStr,$>]
-          end
-      end
+        {Tag,Attrs,Children} = A,
+        xml(Tag,Attrs,Children,Printer)
   end;
 xml(_Printer,A) -> escape(A).
 
 xml(A) -> xml(new(),A).
+
+xml(Tag,Attrs,Children,P0) ->
+  {NSDecl1,TagStr,P1} = name(sanitize(Tag),P0),
+  {NSDecl2,AttrStrs,P2} = 'xml#attributes'(Attrs,P1),
+  case Children of
+    none -> [$<,TagStr,NSDecl1,NSDecl2,AttrStrs,$/,$>];
+    _ -> [$<,TagStr,NSDecl1,NSDecl2,AttrStrs,$>,xml(Children,P2),$<,$/,TagStr,$>]
+  end.
+
+  
 
 'xml#attributes'(Attrs,P) ->
   'xml#attributes'(Attrs,P,[],[]).
@@ -162,4 +165,7 @@ xml(A) -> xml(new(),A).
     {NSDecl,AttrStr,P1} = attribute(sanitize(Name),Value,P0),
     'xml#attributes'(Attrs,P1,[AttrStr|AttrStrs],[NSDecl|NSDecls]).
   
+
+
+
 
