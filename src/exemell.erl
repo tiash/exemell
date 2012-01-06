@@ -298,16 +298,16 @@ event_application(Application,{ParserState=?state{global=#global{module=Module}}
   {Module:xml_application(Application,ParserState),Input}.
 event_meta(Meta,{ParserState=?state{global=#global{module=Module}},Input}) ->
   {Module:xml_meta(Meta,ParserState),Input}.
-event_open_tag(RTag,{ParserState1,Input}) ->
+event_open_tag(RTag,{ParserState1=?state{local=LocalState},Input}) ->
   % io:format("OTag=~p~n",[RTag]),
-  {Tag,ParserState2=?state{local=LocalState}} = nsify(RTag,ParserState1),
-  {ParserState2?state{local=#local_attrs{tag=Tag,attributes=[],?parent(LocalState)}},Input}.
+  % {Tag,ParserState2=?state{local=LocalState}} = nsify(RTag,ParserState1),
+  {ParserState1?state{local=#local_attrs{tag=RTag,attributes=[],?parent(LocalState)}},Input}.
 
-event_end_block(CTag_,{ParserState1,Input}) ->
+event_end_block(CTag,{ParserState1=?state{local=#local_block{tag=Tag,module=Module,state=State}},Input}) ->
   % io:format("CTag = ~p~n",[CTag_]),
-  {CTag,ParserState2=?state{local=#local_block{tag=Tag,module=Module,state=UserState}}} = nsify(CTag_,ParserState1),
-  {Block,ParserState3} = Module:xml_end(UserState,ParserState2),
-  ParserState4 = addChild(Block,ParserState3?state{local=ParserState3?state.local#local_block.parent}),
+  % {CTag,ParserState2=?state{local=#local_block{tag=Tag,module=Module,state=UserState}}} = nsify(CTag_,ParserState1),
+  {Block,ParserState2} = Module:xml_end(State,ParserState1),
+  ParserState4 = addChild(Block,ParserState2?state{local=ParserState2?state.local#local_block.parent}),
   case CTag of
     Tag -> {ParserState4,Input};
     _ ->
@@ -318,10 +318,10 @@ event_attribute_name(Name_,{ParserState1,Input}) ->
   {Name,ParserState2=?state{local=Parent}} = nsify(Name_,ParserState1),
   {ParserState2?state{local=#local_attr{name=Name,parent=Parent}},Input}.
 
-preclose_tag(ParserState1=?state{local=#local_attrs{tag=Tag_,attributes=Attrs_}}) ->
+preclose_tag(ParserState1=?state{local=#local_attrs{tag=RTag,attributes=Attrs_}}) ->
   {Attrs,ParserState2} = process_attrs(lists:reverse(Attrs_),ParserState1,[]),
-  {Tag,ParserState3} = nsify(Tag_,ParserState2),
-  {Tag,Attrs,ParserState3}.
+  {Tag,ParserState3} = nsify(RTag,ParserState2),
+  {RTag,Tag,Attrs,ParserState3}.
 
 process_attrs([],ParserState,Accum) -> {lists:reverse(Accum),ParserState};
 process_attrs([{Name,Value}|Attrs],ParserState1,Accum) ->
@@ -341,7 +341,8 @@ process_attrs([{Name,Value}|Attrs],ParserState1,Accum) ->
   
 
 event_close_tag_begin_block({ParserState1,Input}) ->
-  {Tag,Attrs,ParserState2} = preclose_tag(ParserState1),
+  % io:format("event_close_tag_begin_block... RTag = ~p~n",[RTag]),
+  {RTag,Tag,Attrs,ParserState2} = preclose_tag(ParserState1),
   % io:format("tag/enter[1] ~p~n",[ParserState2]),
   % io:format("tag/enter[1].tag ~p~n",[Tag]),
   % io:format("tag/enter[1].nss ~p~n",[dict:to_list(secondaryNamespaces(ParserState2))]),
@@ -355,18 +356,125 @@ event_close_tag_begin_block({ParserState1,Input}) ->
   Uri = Namespace:xmlns(),
   case Namespace:xml_block(Uri,PTag,Attrs,ParserState2) of
     {skip,ParserState3} -> erlang:exit(todo), {ParserState3,Input};
-    {blob,_BModule,_State,_ParserState3=?state{local=_Parent}} ->
-      erlang:exit(todo);
+    {blob,CModule,State,ParserState3=?state{local=_Parent}} ->
+      {Body,After} = fast_scan(Input,0,Input,RTag,1),
+      {Node,ParserState4=?state{local=#local_attrs{parent=Parent}}} = CModule:xml_blob(Body,State,ParserState3),
+      % io:format("close/tag[7]"),
+      {addChild(Node,ParserState4?state{local=Parent}),After};
     {children,CModule,State,ParserState3=?state{local=#local_attrs{parent=Parent,primary_ns=Primary,secondary_ns=Secondary}}} ->
-      {ParserState3?state{local=#local_block{tag=Tag,module=CModule,state=State,parent=Parent,primary_ns=Primary,secondary_ns=Secondary}},Input}
+      {ParserState3?state{local=#local_block{tag=RTag,module=CModule,state=State,parent=Parent,primary_ns=Primary,secondary_ns=Secondary}},Input}
+  end.
+
+fast_scan(Input,Offs,<<"<[CDATA[",After/bytes>>,Tag,N) ->
+  fast_scan_cdata(Input,Offs+8,After,Tag,N);
+fast_scan(Input,Offs,<<"<[",After/bytes>>,Tag,N) ->
+  fast_scan_section(Input,Offs+2,After,Tag,N);
+fast_scan(Input,Offs,<<"]]>",After/bytes>>,Tag,N) ->
+  fast_scan(Input,Offs+3,After,Tag,N);
+fast_scan(Input,Offs,<<"</",After/bytes>>,Tag,N) ->
+  fast_scan_ctag(Input,Offs,Offs+2,After,Tag,N);
+fast_scan(Input,Offs,<<"<!--",After/bytes>>,Tag,N) ->
+  fast_scan_comment(Input,Offs+4,After,Tag,N);
+fast_scan(Input,Offs,<<"<!",After/bytes>>,Tag,N) ->
+  fast_scan_meta(Input,Offs+2,After,Tag,N);
+fast_scan(Input,Offs,<<"<%",After/bytes>>,Tag,N) ->
+  fast_scan_app(Input,Offs+2,After,Tag,N);
+fast_scan(Input,Offs,<<"<",After/bytes>>,Tag,N) ->
+  fast_scan_tag(Input,Offs+1,After,Tag,N);
+fast_scan(Input,Offs,<<_,After/bytes>>,Tag,N) ->
+  fast_scan(Input,Offs+1,After,Tag,N).
+fast_scan_cdata(Input,Offs,<<"]]>",After/bytes>>,Tag,N) ->
+  fast_scan(Input,Offs+3,After,Tag,N);
+fast_scan_cdata(Input,Offs,<<_,After/bytes>>,Tag,N) ->
+  fast_scan_cdata(Input,Offs+1,After,Tag,N).
+fast_scan_section(Input,Offs,<<"[",After/bytes>>,Tag,N) ->
+  fast_scan_section(Input,Offs+1,After,Tag,N);
+fast_scan_section(Input,Offs,<<_,After/bytes>>,Tag,N) ->
+  fast_scan_section(Input,Offs+1,After,Tag,N).
+fast_scan_comment(Input,Offs,<<"-->",After/bytes>>,Tag,N) ->
+  fast_scan(Input,Offs+3,After,Tag,N);
+fast_scan_comment(Input,Offs,<<_,After/bytes>>,Tag,N) ->
+  fast_scan_comment(Input,Offs+1,After,Tag,N).
+fast_scan_meta(Input,Offs,<<">",After/bytes>>,Tag,N) ->
+  fast_scan(Input,Offs+3,After,Tag,N);
+fast_scan_meta(Input,Offs,<<_,After/bytes>>,Tag,N) ->
+  fast_scan_meta(Input,Offs+1,After,Tag,N).
+fast_scan_app(Input,Offs,<<"%>",After/bytes>>,Tag,N) ->
+  fast_scan(Input,Offs+3,After,Tag,N);
+fast_scan_app(Input,Offs,<<_,After/bytes>>,Tag,N) ->
+  fast_scan_app(Input,Offs+1,After,Tag,N).
+fast_scan_tag(Input,Offs,<<" ",After/bytes>>,Tag,N) ->
+  fast_scan_tag(Input,Offs+1,After,Tag,N);
+fast_scan_tag(Input,Offs,<<"\t",After/bytes>>,Tag,N) ->
+  fast_scan_tag(Input,Offs+1,After,Tag,N);
+fast_scan_tag(Input,Offs,<<"\r",After/bytes>>,Tag,N) ->
+  fast_scan_tag(Input,Offs+1,After,Tag,N);
+fast_scan_tag(Input,Offs,<<"\n",After/bytes>>,Tag,N) ->
+  fast_scan_tag(Input,Offs+1,After,Tag,N);
+fast_scan_tag(Input,Offs,After,Tag,N) ->
+  TS = byte_size(Tag),
+  case After of
+    <<Tag:TS/bytes,After2/bytes>> ->
+      case After2 of
+        <<">",Continue/bytes>> -> fast_scan(Input,Offs+byte_size(Tag)+1,Continue,Tag,N+1);
+        <<"/>",Continue/bytes>> -> fast_scan(Input,Offs+byte_size(Tag)+2,Continue,Tag,N);
+        <<" ",Continue/bytes>> -> fast_scan_etag(Input,Offs+byte_size(Tag)+1,Continue,Tag,N+1,N);
+        <<"\t",Continue/bytes>> -> fast_scan_etag(Input,Offs+byte_size(Tag)+1,Continue,Tag,N+1,N);
+        <<"\r",Continue/bytes>> -> fast_scan_etag(Input,Offs+byte_size(Tag)+1,Continue,Tag,N+1,N);
+        <<"\n",Continue/bytes>> -> fast_scan_etag(Input,Offs+byte_size(Tag)+1,Continue,Tag,N+1,N);
+        <<_,Continue/bytes>> -> fast_scan_etag(Input,Offs+byte_size(Tag)+1,Continue,Tag,N,N)
+      end;
+    _ -> fast_scan_etag(Input,Offs,After,Tag,N,N)
   end.
 
 
-%% TODO: i'm here...
+fast_scan_etag(Input,Offs,<<"/>",Continue/bytes>>,Tag,_,M) ->
+  fast_scan(Input,Offs+2,Continue,Tag,M);
+fast_scan_etag(Input,Offs,<<">",Continue/bytes>>,Tag,N,_) ->
+  fast_scan(Input,Offs+1,Continue,Tag,N);
+fast_scan_etag(Input,Offs,<<"\"",Continue/bytes>>,Tag,N,M) ->
+  fast_scan_quot(Input,Offs+1,Continue,Tag,N,M);
+fast_scan_etag(Input,Offs,<<_,Continue/bytes>>,Tag,N,M) ->
+  fast_scan_etag(Input,Offs+1,Continue,Tag,N,M).
+fast_scan_quot(Input,Offs,<<"\"",Continue/bytes>>,Tag,N,M) ->
+  fast_scan_etag(Input,Offs+1,Continue,Tag,N,M);
+fast_scan_quot(Input,Offs,<<_,Continue/bytes>>,Tag,N,M) ->
+  fast_scan_quot(Input,Offs+1,Continue,Tag,N,M).
+fast_scan_ctag(Input,Offs0,Offs,After,Tag,N) ->
+  TS = byte_size(Tag),
+  case After of
+    <<Tag:TS/bytes,After2/bytes>> ->
+      case After2 of
+        <<">",Continue/bytes>> ->
+          case N of 1 -> fast_scan_finish(Input,Offs0);
+                    _ -> fast_scan(Input,Offs+byte_size(Tag)+1,Continue,Tag,N-1)
+          end;
+        <<" ",Continue/bytes>> -> fast_scan_cetag(Input,Offs0,Offs+byte_size(Tag)+1,Continue,Tag,N);
+        <<"\t",Continue/bytes>> -> fast_scan_cetag(Input,Offs0,Offs+byte_size(Tag)+1,Continue,Tag,N);
+        <<"\r",Continue/bytes>> -> fast_scan_cetag(Input,Offs0,Offs+byte_size(Tag)+1,Continue,Tag,N);
+        <<"\n",Continue/bytes>> -> fast_scan_cetag(Input,Offs0,Offs+byte_size(Tag)+1,Continue,Tag,N);
+        <<_,Continue/bytes>> -> fast_scan_cetag(Input,Offs+byte_size(Tag)+1,Continue,Tag,N)
+      end;
+    _ -> fast_scan_cetag(Input,Offs,After,Tag,N)
+  end.
+fast_scan_cetag(Input,Offs0,_Offs,<<">",_Continue/bytes>>,_Tag,1) ->
+  fast_scan_finish(Input,Offs0);
+fast_scan_cetag(Input,_Offs0,Offs,<<">",Continue/bytes>>,Tag,N) ->
+  fast_scan(Input,Offs+1,Continue,Tag,N-1);
+fast_scan_cetag(Input,Offs0,Offs,<<_,Continue/bytes>>,Tag,N) ->
+  fast_scan_cetag(Input,Offs0,Offs+1,Continue,Tag,N).
+fast_scan_cetag(Input,Offs,<<">",Continue/bytes>>,Tag,N) ->
+  fast_scan(Input,Offs+1,Continue,Tag,N);
+fast_scan_cetag(Input,Offs,<<_,Continue/bytes>>,Tag,N) ->
+  fast_scan_cetag(Input,Offs+1,Continue,Tag,N).
+fast_scan_finish(Input,Offs) ->
+  io:format("[~s:~p] fast_scan_finish(~p,~p).~n",[?FILE,?LINE,Input,Offs]),
+  {binary_part(Input,0,Offs),binary_part(Input,Offs,byte_size(Input)-Offs)}.
+
   
 event_close_tag({ParserState1,Input}) ->
   % io:format("close/tag[1]"),
-  {Tag,Attrs,ParserState2} = preclose_tag(ParserState1),
+  {_RTag,Tag,Attrs,ParserState2} = preclose_tag(ParserState1),
   % io:format("close/tag[2]"),
   case Tag of
     {Prefix,PTag} ->
