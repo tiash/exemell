@@ -446,7 +446,7 @@ fast_scan_ctag(Input,Offs0,Offs,After,Tag,N) ->
     <<Tag:TS/bytes,After2/bytes>> ->
       case After2 of
         <<">",Continue/bytes>> ->
-          case N of 1 -> fast_scan_finish(Input,Offs0);
+          case N of 1 -> fast_scan_finish(Input,Offs0,Continue);
                     _ -> fast_scan(Input,Offs+byte_size(Tag)+1,Continue,Tag,N-1)
           end;
         <<" ",Continue/bytes>> -> fast_scan_cetag(Input,Offs0,Offs+byte_size(Tag)+1,Continue,Tag,N);
@@ -457,8 +457,8 @@ fast_scan_ctag(Input,Offs0,Offs,After,Tag,N) ->
       end;
     _ -> fast_scan_cetag(Input,Offs,After,Tag,N)
   end.
-fast_scan_cetag(Input,Offs0,_Offs,<<">",_Continue/bytes>>,_Tag,1) ->
-  fast_scan_finish(Input,Offs0);
+fast_scan_cetag(Input,Offs0,_Offs,<<">",Continue/bytes>>,_Tag,1) ->
+  fast_scan_finish(Input,Offs0,Continue);
 fast_scan_cetag(Input,_Offs0,Offs,<<">",Continue/bytes>>,Tag,N) ->
   fast_scan(Input,Offs+1,Continue,Tag,N-1);
 fast_scan_cetag(Input,Offs0,Offs,<<_,Continue/bytes>>,Tag,N) ->
@@ -467,9 +467,9 @@ fast_scan_cetag(Input,Offs,<<">",Continue/bytes>>,Tag,N) ->
   fast_scan(Input,Offs+1,Continue,Tag,N);
 fast_scan_cetag(Input,Offs,<<_,Continue/bytes>>,Tag,N) ->
   fast_scan_cetag(Input,Offs+1,Continue,Tag,N).
-fast_scan_finish(Input,Offs) ->
-  io:format("[~s:~p] fast_scan_finish(~p,~p).~n",[?FILE,?LINE,Input,Offs]),
-  {binary_part(Input,0,Offs),binary_part(Input,Offs,byte_size(Input)-Offs)}.
+fast_scan_finish(Input,Offs,Continue) ->
+  % io:format("[~s:~p] fast_scan_finish(~p,~p).~n",[?FILE,?LINE,Input,Offs]),
+  {binary_part(Input,0,Offs),Continue}.
 
   
 event_close_tag({ParserState1,Input}) ->
