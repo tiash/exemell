@@ -94,13 +94,14 @@
 -spec xml(input()) -> {ok,[child()],exemell:state()} | {error,_}.
 xml(Input) -> xml(Input,new()).
 -spec xml(input(),Parser) -> {ok,[child()],Parser} | {error,_} when Parser :: exemell:state().
-xml(Input,State0=?state{}) ->
+xml(Input,State0=?state{}) when is_binary(Input) ->
   case run_parser(Input,reset(State0)) of
     {ok,State1=?state{local=#local_block{tag=undefined,state={undefined,[],Res}}}} ->
       {ok,lists:reverse(Res),State1?state{local=undefined}};
     {ok,State1} -> {error,State1};
     Error -> Error
-  end.
+  end;
+xml(Input,State0=?state{}) -> xml(iolist_to_binary(Input),State0).
 
 -spec new() -> exemell:state().
 new() -> new(undefined).
