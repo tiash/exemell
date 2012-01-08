@@ -36,6 +36,13 @@
                   kernel,
                   stdlib
                  ]},
-  {modules, [ exemell, exemellp ]},
+  {modules, [ exemell
+            , exemell_blob
+            , exemell_block
+            , exemell_namespace_xml
+            , exemell_namespace
+            , exemell_parser
+            , exemellp
+            ]},
   {env, []}
  ]}.
