@@ -64,7 +64,7 @@ Caviats
 
 Todos
 -----
-* Proper test cases, the module has by type annotated and dialyzer is happy.
+* Proper test cases, the modules are type annotated and dialyzer seems happy enough.
 * Figure out how to make dialyzer like a polymorphic version of the module.
 
 Benchmark
